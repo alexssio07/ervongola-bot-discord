@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  bot-discord:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bot-discord
+    volumes:
+      - ./bot-discord.py:/app/bot-discord.py
+    environment:
+      - PYTHONUNBUFFERED=1

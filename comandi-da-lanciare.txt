@@ -1,0 +1,5 @@
+cd Desktop/Discord
+source venv/bin/activate
+python bot-discord.py
+
+docker build -t bot-discord .
