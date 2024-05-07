@@ -42,50 +42,8 @@ message = "Lykanos e Alexssio sono online, se vuoi vai a fargli compagnia... Str
 isOnAlexssio = False
 isOnLykanos = False
 
-frasideffetto = [
-    "è entrato con prepotenza nel canale",
-    "è scivolato per terra entrando nel buco del canale",
-    "è entrato nel canale ruttando",
-    "è entrato nel canale ruttando come un cinghiale inferocito",
-    "è entrato nel canale portando con sè il suo gatto adorabile",
-    "è entrato nel canale, porcodio!",
-    "è entrato nel canale, dajee!",
-    "è entrato nel canale per non farsi i cazzi suoi",
-    "è entrato nel canale con il culo aperto",
-    "è entrato nel canale segandosi",
-    "è entrato nel canale sbattendo il mignolo del piede",
-    "è entrato nel canale sbattendo la porta va là",
-    "è entrato con il cazzo dritto",
-    "è entrato bruciando la chiesa cattolica",
-    "è entrato strafatto",
-    "è entrato strafatto come na pigna",
-    "è entrato nel canale dalla missione su Plutone",
-    "è entrato nel canale rollando una canna",
-    "è entrato nel canale rollando un cannone",
-    "è entrato con le mutande smerdate",
-    "è entrato con il cazzo dritto, daje!",
-    "è entrato nel canale sbattendo la capoccia e si è fatto pure male...",
-    "è entrato nel canale, porca madonna!",
-    "è entrato nel canale a pecora",
-    "è entrato prendendo a pisellate il muro",
-    "è entrato nel canale prendendo il muro fratellì!",
-    "è entrato nel canale sbattendo la cappella",
-    "è entrato nel canale buber curwa!",
-    "è entrato nel canale a caso",
-    "è entrato nel canale sbattendo il mignolo sulla scrivania",
-    "è entrato nel canale scureggiando",
-    "è entrato nel canale, porcodio! Eh no! Non si dice!",
-    "è entrato nel canale, onicchan... cazzo sto dicendo...",
-    "è entrato nel canale insultando il papa",
-    "è entrato nel canale con il porcodio addosso",
-    "è entrato nel canale sbroccando",
-    "è entrato nel canale sbroccando per la connessione",
-    "è entrato nel canale sbroccando per la giornata di lavoro avuta oggi...",
-    "è entrato nel canale, signora i limoni SIGNORA!!!",
-    "è entrato nel canale bestemmiando per gli aggiornamenti della scheda video",
-    "è entrato nel canale bestemmiando per la connessione",
-    "è entrato nel canale dopo aver finito di cenare",
-]
+
+client = Client(host="http://host.docker.internal:11434/api/generate -d")
 
 
 class FrasiConteggio:
@@ -96,73 +54,91 @@ class FrasiConteggio:
         with open(filename, "w") as file:
             json.dump({"frasi": self.frasi}, file)
 
-    def incrementa_conteggio(self, frase, utente):
-        for f in self.frasi:
-            if f["text"] == frase:
-                for u in f["user"]:
-                    if u["name"] == utente:
-                        u["count"] += 1
-                        self.salva_su_file("frasieffetto.json")
-                        break
-
     def frase_random(self, utente):
-        frasi_disponibili = []
-        probabilita = []
-        for f in self.frasi:
-            for u in f["user"]:
-                if u["name"] == utente:
-                    frasi_disponibili.append(f)
-                    probabilita.append(
-                        1 / (1 + u["count"])
-                    )  # Modifica la probabilità in base al conteggio
-                    break
-                else:
-                    # Se l'utente non ha frasi, aggiungilo con count 1 per ogni frase
-                    f["user"].append({"count": 1, "name": utente})
-                    frasi_disponibili.append(f)
-                    probabilita.append(1)
+        # Lista dei pesi delle frasi
+        pesi = []
+        # Calcola il peso per ogni frase
+        for frase in self.frasi:
+            # Somma di count o del conteggio per tutti gli utenti di ogni frase
+            count_totale = sum(user["count"] for user in frase["users"])
+            # Calcola il peso basato sulla somma dei count e una costante arbitraria
+            peso = 1 / (count_totale + 1)  # +1 per evitare divisione per zero
+            pesi.append(peso)
 
-        return random.choices(
-            [f["text"] for f in frasi_disponibili], weights=probabilita
-        )[0]
+        # Genera un numero casuale basato sui pesi delle frasi
+        indice_frase_selezionata = random.choices(range(len(self.frasi)), weights=pesi)[
+            0
+        ]
+
+        wasFound = False
+        for user in self.frasi[indice_frase_selezionata]["users"]:
+            # Cerca se l'utente ha già eseguito quella determinata frase corrispondente
+            # all'indice generato casualmente
+            if user["name"] == utente:
+                # Incrementa il valore di count per la frase selezionata
+                user["count"] += 1
+                self.salva_su_file("frasieffetto.json")
+                wasFound = True
+                break
+            else:
+                wasFound = False
+        # Se l'utente non ha frasi, aggiungilo per quella specifica frase
+        if not (wasFound):
+            self.frasi[indice_frase_selezionata]["users"].append(
+                {"count": 1, "name": utente}
+            )
+            # Aggiorna il JSON
+            self.salva_su_file("frasieffetto.json")
+
+        # Restituisci la frase selezionata
+        return self.frasi[indice_frase_selezionata]["text"]
+
+
+# Inizializzazione bot Discord
+intents = discord.Intents.all()
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 
 async def make_audio(member, channelKey):
-    with open("frasi.json", "r") as file:
+    with open("frasieffetto.json", "r") as file:
         data = json.load(file)
     frasi = FrasiConteggio(data)
+    # Ottengo il canale tramite il channelKey
     channel = bot.get_channel(int(channelKey))
+    # Controllo se l'utente è entrato in quel determinato canale
     if (
         str(channel.id) == chat_vocale_privato
         or str(channel.id) == chat_vocale_privato2
         or str(channel.id) == chat_vocale_privato3
     ):
         try:
-            frasedeffetto = frasi.frase_random(frasideffetto)
-            custom_message = f"{'Burzum' if member.name == name_burzum or str(member.id) == id_burzum else member.name} {frasedeffetto}"
+            # Genero una frase casuale tramite il metodo frase_random della classe FrasiConteggio
+            frasedeffetto = frasi.frase_random(member.name)
+            custom_message = f"{'Burzum' if str(member.id) == id_burzum else member.name} {frasedeffetto}"
             custom_message = f"{'Pantera' if member.name == name_black_panthera else member.name} {frasedeffetto}"
-            frasi.incrementa_conteggio(frasedeffetto, member.name)
             # custom_message = f"{'Melissa' if member.name == name_melissa else member.name} {np.random.choice(frasideffetto)}"
-            # response = clientAI.audio.speech.create(
-            #     model="tts-1", voice="fable", input=custom_message, response_format="aac"
-            # )
-            # response.write_to_file("welcome_message.mp3")
+
+            # Genero il file audio contenente la frase costruita precedentemente
             tts = gTTS(custom_message, lang="it")
+            # Salvo il file audio
             tts.save("welcome_message.mp3")
 
-            print(f"Channel: {channel}")
+            print(f"Channel: {channel}", flush=True)
             print("Connecting to voice channel...", flush=True)
 
+            # Verifica che sia un canale vocale e creando il client per la connessione
             if channel and isinstance(channel, discord.VoiceChannel):
+                # Connessione al canale
                 vc = await channel.connect()
                 print("Connected to voice channel")
+                # Riproduzione del file audio
                 vc.play(
                     discord.FFmpegPCMAudio("welcome_message.mp3"),
                     after=lambda e: print("Done", e),
                 )
                 while vc.is_playing():
                     print("Is playing...", flush=True)
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(2)
                 await vc.disconnect()
 
             # Elimina il file audio dopo la riproduzione
@@ -257,13 +233,10 @@ async def on_voice_state_update(member, before, after):
         and not (after.self_video)
         and before.channel != after.channel
     ):
-        await make_audio(member, after.channel.id)
+        if after.channel:
+            await make_audio(member, after.channel.id)
         return
 
 
-client = Client(host="http://host.docker.internal:11434/api/generate -d")
-# Inizializzazione bot Discord
-intents = discord.Intents.all()
-bot = commands.Bot(command_prefix="!", intents=intents)
 # Esegui il bot Discord
 bot.run(discord_token)

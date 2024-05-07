@@ -5,6 +5,7 @@ WORKDIR /app
 
 # Copia il tuo script Python nella directory di lavoro
 COPY bot-discord.py .
+COPY frasieffetto.json .
 
 # Installa le librerie necessarie
 RUN pip install --upgrade pip
