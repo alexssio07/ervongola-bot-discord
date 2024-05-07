@@ -138,7 +138,7 @@ async def make_audio(member, channelKey):
                 )
                 while vc.is_playing():
                     print("Is playing...", flush=True)
-                    await asyncio.sleep(2)
+                    await asyncio.sleep(1)
                 await vc.disconnect()
 
             # Elimina il file audio dopo la riproduzione
@@ -200,7 +200,10 @@ async def on_message(message):
                 ],
             )
             responseFormatted = response["message"]["content"]
-            await message.reply(responseFormatted)
+            await message.channel.send(content=responseFormatted[:1999])
+            if len(responseFormatted) >= 1999:
+                for i in range(0, 1999, 1999):
+                    await message.channel.send(content=responseFormatted[i : i + 1999])
             print(responseFormatted, flush=True)
         except ollama.ResponseError as e:
             print(e, flush=True)
