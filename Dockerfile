@@ -1,5 +1,5 @@
 # Dockerfile
-FROM python:3.9
+FROM python:3.10
 
 WORKDIR /app
 
@@ -16,6 +16,9 @@ RUN pip install PyNaCl
 RUN pip install gtts 
 RUN pip install ollama
 RUN pip install langchain
+RUN pip install streamlit
+RUN pip install nest_asyncio
+RUN pip install scrapegraphai
 RUN pip install numpy 
 RUN pip install imageio
 RUN pip install discord.py 

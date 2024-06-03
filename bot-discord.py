@@ -3,22 +3,24 @@ from discord.ext import commands
 from discord.ext.tasks import loop
 from discord.utils import get
 from gtts import gTTS
+from dotenv import load_dotenv
 import asyncio
 import os
-import imageio
 import random
 import numpy as np
 from ollama import Client
 import ollama
-import socket
 import json
+import streamlit as st
+from scrapegraphai.graphs import SmartScraperGraph
+import nest_asyncio
+next_asyncio = nest_asyncio.apply()
+load_dotenv()
 
 # Configurazioni
-discord_token = (
-    "MTIwNTU4NTEyMDE4NzI2MTAwMA.GQayKs.TrtrqBgt32wcl-9WtgQeSMjeTz0J646IfY4LD8"
-)
-key_api_personal_ai = "sk-d342ce6c42c241d3bf2a89a39e956033"
-key_jwt_personal_ai = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6ImU5MjQ2NmI1LWY1ZjItNDBmYS1hYWFiLTNjM2U3MzRhN2E1MCJ9.Ad5WXhDevqgD47JP1uwqkRpSXZvnA5GhXxVLIfuBX9A"
+discord_token = os.getenv("DISCORD_TOKEN")
+key_api_personal_ai = os.getenv("KEY_API_PERSONAL_AI")
+key_jwt_personal_ai = os.getenv("KEY_JWT_PERSONAL_AI")
 
 id_dark_lord = "271371380467957762"
 chat_id_discord = "1206179021134499841"
@@ -41,9 +43,19 @@ name_melissa = "ismerisa"
 message = "Lykanos e Alexssio sono online, se vuoi vai a fargli compagnia... Stronzo."
 isOnAlexssio = False
 isOnLykanos = False
+keysQuestionRoma = [
+    "As Roma",
+    "as roma",
+    "partite",
+    "partita",
+    "biglietti",
+    "biglietto",
+]
 
-
+# errore welcome_message no such file
 client = Client(host="http://host.docker.internal:11434/api/generate -d")
+
+audio_queue = asyncio.Queue()  # Coda per le richieste audio
 
 
 class FrasiConteggio:
@@ -106,53 +118,58 @@ async def make_audio(member, channelKey):
     # Ottengo il canale tramite il channelKey
     channel = bot.get_channel(int(channelKey))
     # Controllo se l'utente è entrato in quel determinato canale
-    if (
-        str(channel.id) == chat_vocale_privato
-        or str(channel.id) == chat_vocale_privato2
-        or str(channel.id) == chat_vocale_privato3
-    ):
+    if str(channel.id) in [
+        chat_vocale_privato,
+        chat_vocale_privato2,
+        chat_vocale_privato3,
+    ]:
+        # Genero una frase casuale tramite il metodo frase_random della classe FrasiConteggio
+        frasedeffetto = frasi.frase_random(member.name)
+        if str(member.name) == name_burzum:
+            custom_message = f"Burzum {frasedeffetto}"
+        elif str(member.id) == id_black_panthera:
+            custom_message = f"Pantera {frasedeffetto}"
+        else:
+            custom_message = f"{member.name} {frasedeffetto}"
+        # custom_message = f"{'Burzum'  else member.name} {frasedeffetto}"
+        # custom_message = f"{'Melissa' if member.name == name_melissa else member.name} {np.random.choice(frasideffetto)}"
+
+        # Genero il file audio contenente la frase costruita precedentemente
+        tts = gTTS(custom_message, lang="it")
+        # Salvo il file audio
+        tts.save(f"welcome_message_{member.name}.mp3")
+
+        print(f"Channel: {channel}", flush=True)
+        print("Connecting to voice channel...", flush=True)
         try:
-            # Genero una frase casuale tramite il metodo frase_random della classe FrasiConteggio
-            frasedeffetto = frasi.frase_random(member.name)
-            custom_message = f"{'Burzum' if str(member.id) == id_burzum else member.name} {frasedeffetto}"
-            custom_message = f"{'Pantera' if member.name == name_black_panthera else member.name} {frasedeffetto}"
-            # custom_message = f"{'Melissa' if member.name == name_melissa else member.name} {np.random.choice(frasideffetto)}"
-
-            # Genero il file audio contenente la frase costruita precedentemente
-            tts = gTTS(custom_message, lang="it")
-            # Salvo il file audio
-            tts.save("welcome_message.mp3")
-
-            print(f"Channel: {channel}", flush=True)
-            print("Connecting to voice channel...", flush=True)
-
-            # Verifica che sia un canale vocale e creando il client per la connessione
             if channel and isinstance(channel, discord.VoiceChannel):
-                # Connessione al canale
-                vc = await channel.connect()
-                print("Connected to voice channel")
-                # Riproduzione del file audio
-                vc.play(
-                    discord.FFmpegPCMAudio("welcome_message.mp3"),
-                    after=lambda e: print("Done", e),
-                )
-                while vc.is_playing():
-                    print("Is playing...", flush=True)
-                    await asyncio.sleep(1)
-                await vc.disconnect()
-
-            # Elimina il file audio dopo la riproduzione
-            os.remove("welcome_message.mp3")
-            print("File audio deleted", flush=True)
+                await audio_queue.put((channel, f"welcome_message_{member.name}.mp3"))
         except Exception as e:
-            print(e)
+            print(f"Error: {e}", flush=True)
+
+async def audio_player():
+    while True:
+        channel, file_path = await audio_queue.get()
+        try:
+            vc = await channel.connect()
+            #elif vc.channel.id != channel.id:
+            #   await vc.move_to(channel)
+            vc.play(discord.FFmpegPCMAudio(file_path))
+            while vc.is_playing():
+                await asyncio.sleep(3)
+            os.remove(file_path)
+            if vc and vc.is_connected():
+                await vc.disconnect()
+            audio_queue.task_done()
+        except Exception as e:
+            print(f"Error: {e}", flush=True)
 
 
 @bot.event
 async def on_ready():
+    bot.loop.create_task(audio_player())
     print(f"Logged in as {bot.user.name} ({bot.user.id})", flush=True)
     check_online.start()
-
 
 @loop(minutes=90)  # Controlla ogni 90 minuti
 async def check_online():
@@ -175,12 +192,73 @@ async def check_online():
         await dark_Lord.send(message)
         await alexssio.send(message)
 
+@bot.event
+async def on_voice_state_update(member, before, after):
+    # if after.self_stream:
+    #     print(f"{member.name} sta trasmettendo uno streaming.")
+    # else:
+    #     print(f"{member.name} non sta trasmettendo uno streaming.")
+
+    # if before.channel:
+    #     print(f"canale prima {before.channel}", flush=True)
+    # if after.channel:
+    #     print(f"canale dopo {after.channel}", flush=True)
+    if (
+        (
+            member.name == name_alexssio
+            or member.name == name_lykanos
+            or member.name == name_dark_lord
+            or member.name == name_burzum
+            or member.name == name_black_panthera
+            or member.name == name_melissa
+        )
+        and not (after.self_stream)
+        and not (after.self_video)
+        and before.channel != after.channel
+    ):
+        if after.channel:
+            await make_audio(member, after.channel.id)
+
+async def checkInfoFromSite():
+    graph_config = {
+        "llm": {
+            "model": "ollama/llama3",
+            "temperature": 0,
+            "format": "json",  # Ollama needs the format to be specified explicitly
+            "base_url": "http://localhost:11434",  # set Ollama URL
+            # "base_url": "http://host.docker.internal:11434/api/generate -d",  # set Ollama URL
+        },
+        "embeddings": {
+            "model": "ollama/nomic-embed-text",
+            "base_url": "http://localhost:11434",  # set Ollama URL
+            # "base_url": "http://host.docker.internal:11434/api/generate -d",  # set Ollama URL
+        },
+        "verbose": True,
+    }
+
+    smart_scraper_graph = SmartScraperGraph(
+        prompt="Tell me the available tickets",
+        # also accepts a string with the already downloaded HTML code
+        source="https://www.asroma.com/it/biglietti",
+        config=graph_config,
+    )
+
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, smart_scraper_graph.run)
+    
+    print(result)
+
 
 @bot.event
 async def on_message(message):
     if message.author.bot:
         return
     message_user = str(message.content)
+    for value in keysQuestionRoma:
+        if value in message_user:
+            print("hai domandato cose riguardo la Roma")
+            await checkInfoFromSite()
+            return
     print(f"Messaggio ricevuto da {message.author}: {message_user}", flush=True)
     if message.channel.id == int(chat_id_discord):
         print(message_user)
@@ -210,35 +288,6 @@ async def on_message(message):
             await message.reply(
                 f"Si è verificato un errore durante l'elaborazione della richiesta. {e}"
             )
-
-
-@bot.event
-async def on_voice_state_update(member, before, after):
-    if after.self_stream:
-        print(f"{member.name} sta trasmettendo uno streaming.")
-    else:
-        print(f"{member.name} non sta trasmettendo uno streaming.")
-
-    if before.channel:
-        print(f"canale prima {before.channel}", flush=True)
-    if after.channel:
-        print(f"canale dopo {after.channel}", flush=True)
-    if (
-        (
-            member.name == name_alexssio
-            or member.name == name_lykanos
-            or member.name == name_dark_lord
-            or member.name == name_burzum
-            or member.name == name_black_panthera
-            or member.name == name_melissa
-        )
-        and not (after.self_stream)
-        and not (after.self_video)
-        and before.channel != after.channel
-    ):
-        if after.channel:
-            await make_audio(member, after.channel.id)
-        return
 
 
 # Esegui il bot Discord
