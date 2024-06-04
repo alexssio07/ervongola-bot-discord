@@ -12,6 +12,7 @@ RUN pip install --upgrade pip
 RUN apt-get update
 RUN apt-get install -y ffmpeg
 # RUN pip install -r requirement.txt
+RUN pip install playwright
 RUN pip install PyNaCl
 RUN pip install gtts 
 RUN pip install ollama

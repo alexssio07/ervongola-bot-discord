@@ -51,18 +51,17 @@ keysQuestionRoma = [
     "biglietti",
     "biglietto",
 ]
-
-# errore welcome_message no such file
 client = Client(host="http://host.docker.internal:11434/api/generate -d")
 
 audio_queue = asyncio.Queue()  # Coda per le richieste audio
 
-
+# Classe per la generazione casuale di una frase prendendola dal file JSON
 class FrasiConteggio:
     def __init__(self, data):
         self.frasi = data["frasi"]  # Carica le frasi dal JSON
 
     def salva_su_file(self, filename):
+        # Apro la comunicazione con il file JSON per ottenermi la lista delle frasi
         with open(filename, "w") as file:
             json.dump({"frasi": self.frasi}, file)
 
@@ -102,7 +101,7 @@ class FrasiConteggio:
             # Aggiorna il JSON
             self.salva_su_file("frasieffetto.json")
 
-        # Restituisci la frase selezionata
+        # Restituisci la frase selezionata (text) corrispondente all'indice
         return self.frasi[indice_frase_selezionata]["text"]
 
 
@@ -112,6 +111,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 
 async def make_audio(member, channelKey):
+    # Apro la comunicazione con il file JSON per ottenermi la lista delle frasi
     with open("frasieffetto.json", "r") as file:
         data = json.load(file)
     frasi = FrasiConteggio(data)
@@ -129,14 +129,14 @@ async def make_audio(member, channelKey):
             custom_message = f"Burzum {frasedeffetto}"
         elif str(member.id) == id_black_panthera:
             custom_message = f"Pantera {frasedeffetto}"
+        elif str(member.name) == name_melissa:
+            custom_message = f"Melissa {frasedeffetto}"
         else:
             custom_message = f"{member.name} {frasedeffetto}"
-        # custom_message = f"{'Burzum'  else member.name} {frasedeffetto}"
-        # custom_message = f"{'Melissa' if member.name == name_melissa else member.name} {np.random.choice(frasideffetto)}"
 
         # Genero il file audio contenente la frase costruita precedentemente
         tts = gTTS(custom_message, lang="it")
-        # Salvo il file audio
+        # Salvo il file audio con il nome del membro associato
         tts.save(f"welcome_message_{member.name}.mp3")
 
         print(f"Channel: {channel}", flush=True)
@@ -147,17 +147,20 @@ async def make_audio(member, channelKey):
         except Exception as e:
             print(f"Error: {e}", flush=True)
 
+
+# Questo metodo connette il bot al canale vocale se il canale non è vuoto e riproduce il file audio, 
+# rimane in attesa 3 secondi per permettere di aggiungersi altri file in coda da riprodurre successivamente
 async def audio_player():
     while True:
-        channel, file_path = await audio_queue.get()
+        channel, file_name = await audio_queue.get()
         try:
             vc = await channel.connect()
             #elif vc.channel.id != channel.id:
             #   await vc.move_to(channel)
-            vc.play(discord.FFmpegPCMAudio(file_path))
+            vc.play(discord.FFmpegPCMAudio(file_name))
             while vc.is_playing():
                 await asyncio.sleep(3)
-            os.remove(file_path)
+            os.remove(file_name)
             if vc and vc.is_connected():
                 await vc.disconnect()
             audio_queue.task_done()
@@ -165,20 +168,24 @@ async def audio_player():
             print(f"Error: {e}", flush=True)
 
 
+# Questo metodo viene invocato quando il bot Discord viene avviato e viene inizializzato
 @bot.event
 async def on_ready():
     bot.loop.create_task(audio_player())
     print(f"Logged in as {bot.user.name} ({bot.user.id})", flush=True)
     check_online.start()
 
-@loop(minutes=90)  # Controlla ogni 90 minuti
+
+# Questo metodo verrà chiamato ogni 90 minuti in loop fino a quando il bot non viene interrotto
+@loop(minutes=90)
 async def check_online():
     isOnAlexssio = False
     isOnLykanos = False
+    isOnDarkLord = False
     dark_Lord = await bot.fetch_user(id_dark_lord)
     alexssio = await bot.fetch_user(id_alexssio)
-    lykanos = await bot.fetch_user(id_lykanos)
-    user = bot.get_all_members()
+    # lykanos = await bot.fetch_user(id_lykanos)
+    # user = bot.get_all_members()
     for guild in bot.guilds:
         for member in guild.members:
             if name_alexssio == member.name:
@@ -187,11 +194,15 @@ async def check_online():
             if name_lykanos == member.name:
                 if member.status == discord.Status.online:
                     isOnLykanos = True
+            if name_dark_lord == member.name:
+                if member.status == discord.Status.online:
+                    isOnDarkLord = True
 
-    if isOnAlexssio and isOnLykanos:
+    if isOnAlexssio and isOnLykanos and not isOnDarkLord:
         await dark_Lord.send(message)
         await alexssio.send(message)
 
+# Questo metodo viene invocato ogni volta che c'è un cambio di stato sul member e su quale canale si è spostato
 @bot.event
 async def on_voice_state_update(member, before, after):
     # if after.self_stream:
@@ -203,6 +214,7 @@ async def on_voice_state_update(member, before, after):
     #     print(f"canale prima {before.channel}", flush=True)
     # if after.channel:
     #     print(f"canale dopo {after.channel}", flush=True)
+
     if (
         (
             member.name == name_alexssio
@@ -249,6 +261,7 @@ async def checkInfoFromSite():
     print(result)
 
 
+# Questo metodo viene invocato ogni volta che il bot riceve un messaggio
 @bot.event
 async def on_message(message):
     if message.author.bot:
@@ -288,7 +301,6 @@ async def on_message(message):
             await message.reply(
                 f"Si è verificato un errore durante l'elaborazione della richiesta. {e}"
             )
-
 
 # Esegui il bot Discord
 bot.run(discord_token)
