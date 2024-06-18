@@ -4,7 +4,9 @@ Assistente virtuale chiamato Er Vongola, super potente e cazzuto in grado di ann
 
 ### COMANDI DA ESEGUIRE
 - **ENTRA NELLA CARTELLA** >  ```cd Desktop/Discord```
+Se necessario
 - **ATTIVA L'AMBIENTE VIRTUALE** >  ```source venv/bin/activate```
+(Verifica i pacchetti contenuti dentro il docker-file)
 - **SCARICA TUTTI I PACCHETTI CON PIP** >  ```pip install -r .\requirements.txt```
 - **AVVIA IL BOT** >  ```python bot-discord.py```
 
