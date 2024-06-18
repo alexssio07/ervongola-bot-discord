@@ -10,4 +10,4 @@ Assistente virtuale chiamato Er Vongola, super potente e cazzuto in grado di ann
 
 ### DOCKER
 - **COSTRUISCI L'IMMAGINE DOCKER** >  ```docker build -t bot-discord .```
-- **AVVIA IL CONTAINER INSERENDO LE VARIABILI DI AMBIENTE** >  DISCORD_TOKEN, KEY_API_PERSONAL_AI, KEY_JWT_PERSONAL_AI
+- **AVVIA IL CONTAINER INSERENDO LE VARIABILI DI AMBIENTE** >  DISCORD_TOKEN recuperabile da [qua](https://discord.com/developers/applications/1205585120187261000/information), KEY_API_PERSONAL_AI, KEY_JWT_PERSONAL_AI (recuperabili da Ollama Client)
