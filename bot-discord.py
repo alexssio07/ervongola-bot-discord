@@ -259,6 +259,7 @@ async def checkInfoFromSite():
     result = await loop.run_in_executor(None, smart_scraper_graph.run)
     
     print(result)
+    return
 
 
 # Questo metodo viene invocato ogni volta che il bot riceve un messaggio
