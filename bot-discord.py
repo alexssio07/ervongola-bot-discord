@@ -6,7 +6,6 @@ from gtts import gTTS
 from dotenv import load_dotenv
 import asyncio
 import os
-import random
 import numpy as np
 from ollama import Client
 import ollama
@@ -14,6 +13,9 @@ import json
 import streamlit as st
 from scrapegraphai.graphs import SmartScraperGraph
 import nest_asyncio
+
+import frasiconteggio
+import scraper
 next_asyncio = nest_asyncio.apply()
 load_dotenv()
 
@@ -55,56 +57,6 @@ client = Client(host="http://host.docker.internal:11434/api/generate -d")
 
 audio_queue = asyncio.Queue()  # Coda per le richieste audio
 
-# Classe per la generazione casuale di una frase prendendola dal file JSON
-class FrasiConteggio:
-    def __init__(self, data):
-        self.frasi = data["frasi"]  # Carica le frasi dal JSON
-
-    def salva_su_file(self, filename):
-        # Apro la comunicazione con il file JSON per ottenermi la lista delle frasi
-        with open(filename, "w") as file:
-            json.dump({"frasi": self.frasi}, file)
-
-    def frase_random(self, utente):
-        # Lista dei pesi delle frasi
-        pesi = []
-        # Calcola il peso per ogni frase
-        for frase in self.frasi:
-            # Somma di count o del conteggio per tutti gli utenti di ogni frase
-            count_totale = sum(user["count"] for user in frase["users"])
-            # Calcola il peso basato sulla somma dei count e una costante arbitraria
-            peso = 1 / (count_totale + 1)  # +1 per evitare divisione per zero
-            pesi.append(peso)
-
-        # Genera un numero casuale basato sui pesi delle frasi
-        indice_frase_selezionata = random.choices(range(len(self.frasi)), weights=pesi)[
-            0
-        ]
-
-        wasFound = False
-        for user in self.frasi[indice_frase_selezionata]["users"]:
-            # Cerca se l'utente ha già eseguito quella determinata frase corrispondente
-            # all'indice generato casualmente
-            if user["name"] == utente:
-                # Incrementa il valore di count per la frase selezionata
-                user["count"] += 1
-                self.salva_su_file("frasieffetto.json")
-                wasFound = True
-                break
-            else:
-                wasFound = False
-        # Se l'utente non ha frasi, aggiungilo per quella specifica frase
-        if not (wasFound):
-            self.frasi[indice_frase_selezionata]["users"].append(
-                {"count": 1, "name": utente}
-            )
-            # Aggiorna il JSON
-            self.salva_su_file("frasieffetto.json")
-
-        # Restituisci la frase selezionata (text) corrispondente all'indice
-        return self.frasi[indice_frase_selezionata]["text"]
-
-
 # Inizializzazione bot Discord
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -114,7 +66,7 @@ async def make_audio(member, channelKey):
     # Apro la comunicazione con il file JSON per ottenermi la lista delle frasi
     with open("frasieffetto.json", "r") as file:
         data = json.load(file)
-    frasi = FrasiConteggio(data)
+    frasi = frasiconteggio.FrasiConteggio(data)
     # Ottengo il canale tramite il channelKey
     channel = bot.get_channel(int(channelKey))
     # Controllo se l'utente è entrato in quel determinato canale
@@ -188,17 +140,15 @@ async def check_online():
     # user = bot.get_all_members()
     for guild in bot.guilds:
         for member in guild.members:
+            print("channel ok")
             if name_alexssio == member.name:
                 if member.status == discord.Status.online:
                     isOnAlexssio = True
             if name_lykanos == member.name:
                 if member.status == discord.Status.online:
                     isOnLykanos = True
-            if name_dark_lord == member.name:
-                if member.status == discord.Status.online:
-                    isOnDarkLord = True
 
-    if isOnAlexssio and isOnLykanos and not isOnDarkLord:
+    if isOnAlexssio and isOnLykanos:
         await dark_Lord.send(message)
         await alexssio.send(message)
 
@@ -231,37 +181,6 @@ async def on_voice_state_update(member, before, after):
         if after.channel:
             await make_audio(member, after.channel.id)
 
-async def checkInfoFromSite():
-    graph_config = {
-        "llm": {
-            "model": "ollama/llama3",
-            "temperature": 0,
-            "format": "json",  # Ollama needs the format to be specified explicitly
-            "base_url": "http://localhost:11434",  # set Ollama URL
-            # "base_url": "http://host.docker.internal:11434/api/generate -d",  # set Ollama URL
-        },
-        "embeddings": {
-            "model": "ollama/nomic-embed-text",
-            "base_url": "http://localhost:11434",  # set Ollama URL
-            # "base_url": "http://host.docker.internal:11434/api/generate -d",  # set Ollama URL
-        },
-        "verbose": True,
-    }
-
-    smart_scraper_graph = SmartScraperGraph(
-        prompt="Tell me the available tickets",
-        # also accepts a string with the already downloaded HTML code
-        source="https://www.asroma.com/it/biglietti",
-        config=graph_config,
-    )
-
-    loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, smart_scraper_graph.run)
-    
-    print(result)
-    return
-
-
 # Questo metodo viene invocato ogni volta che il bot riceve un messaggio
 @bot.event
 async def on_message(message):
@@ -271,7 +190,7 @@ async def on_message(message):
     for value in keysQuestionRoma:
         if value in message_user:
             print("hai domandato cose riguardo la Roma")
-            await checkInfoFromSite()
+            await scraper.checkInfoFromSite()
             return
     print(f"Messaggio ricevuto da {message.author}: {message_user}", flush=True)
     if message.channel.id == int(chat_id_discord):
