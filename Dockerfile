@@ -4,10 +4,13 @@ FROM python:3.10
 WORKDIR /app
 
 # Copia il tuo script Python nella directory di lavoro
-COPY bot-discord.py .
+COPY utils.py .
 COPY frasiconteggio.py .
+COPY generatoreblasfemie.py .
 COPY scraper.py .
+COPY bot-discord.py .
 COPY frasieffetto.json .
+COPY blasfemia.json .
 
 # Installa le librerie necessarie
 RUN pip install --upgrade pip

@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+from discord import app_commands
 from discord.ext.tasks import loop
 from discord.utils import get
 from gtts import gTTS
@@ -13,8 +14,8 @@ import json
 import streamlit as st
 from scrapegraphai.graphs import SmartScraperGraph
 import nest_asyncio
-
-import frasiconteggio
+import generatoreblasfemie
+import utils as ut
 import scraper
 next_asyncio = nest_asyncio.apply()
 load_dotenv()
@@ -25,10 +26,12 @@ key_api_personal_ai = os.getenv("KEY_API_PERSONAL_AI")
 key_jwt_personal_ai = os.getenv("KEY_JWT_PERSONAL_AI")
 
 id_dark_lord = "271371380467957762"
-chat_id_discord = "1206179021134499841"
+chat_for_ai_id_discord = "1206179021134499841"
+chat_blasfemie_id_discord = "1256877516224729149"
 chat_vocale_privato = "707198443751211140"
 chat_vocale_privato2 = "707514058990944256"
 chat_vocale_privato3 = "783252026766131222"
+chat_text_test_id = "1256593273246453823"
 
 name_dark_lord = "6dark6lord6"
 id_alexssio = "190745296500686857"
@@ -41,6 +44,7 @@ id_black_panthera = "399979832038916101"
 name_black_panthera = "blackpanthera666"
 id_melissa = "293497922870312961"
 name_melissa = "ismerisa"
+id_bot_ervongola = "1205585120187261000"
 
 message = "Lykanos e Alexssio sono online, se vuoi vai a fargli compagnia... Stronzo."
 isOnAlexssio = False
@@ -53,79 +57,29 @@ keysQuestionRoma = [
     "biglietti",
     "biglietto",
 ]
-client = Client(host="http://host.docker.internal:11434/api/generate -d")
+clientAI = Client(host="http://host.docker.internal:11434/api/generate -d")
 
 audio_queue = asyncio.Queue()  # Coda per le richieste audio
 
 # Inizializzazione bot Discord
 intents = discord.Intents.all()
-bot = commands.Bot(command_prefix="!", intents=intents)
-
-
-async def make_audio(member, channelKey):
-    # Apro la comunicazione con il file JSON per ottenermi la lista delle frasi
-    with open("frasieffetto.json", "r") as file:
-        data = json.load(file)
-    frasi = frasiconteggio.FrasiConteggio(data)
-    # Ottengo il canale tramite il channelKey
-    channel = bot.get_channel(int(channelKey))
-    # Controllo se l'utente è entrato in quel determinato canale
-    if str(channel.id) in [
-        chat_vocale_privato,
-        chat_vocale_privato2,
-        chat_vocale_privato3,
-    ]:
-        # Genero una frase casuale tramite il metodo frase_random della classe FrasiConteggio
-        frasedeffetto = frasi.frase_random(member.name)
-        if str(member.name) == name_burzum:
-            custom_message = f"Burzum {frasedeffetto}"
-        elif str(member.id) == id_black_panthera:
-            custom_message = f"Pantera {frasedeffetto}"
-        elif str(member.name) == name_melissa:
-            custom_message = f"Melissa {frasedeffetto}"
-        else:
-            custom_message = f"{member.name} {frasedeffetto}"
-
-        # Genero il file audio contenente la frase costruita precedentemente
-        tts = gTTS(custom_message, lang="it")
-        # Salvo il file audio con il nome del membro associato
-        tts.save(f"welcome_message_{member.name}.mp3")
-
-        print(f"Channel: {channel}", flush=True)
-        print("Connecting to voice channel...", flush=True)
-        try:
-            if channel and isinstance(channel, discord.VoiceChannel):
-                await audio_queue.put((channel, f"welcome_message_{member.name}.mp3"))
-        except Exception as e:
-            print(f"Error: {e}", flush=True)
-
-
-# Questo metodo connette il bot al canale vocale se il canale non è vuoto e riproduce il file audio, 
-# rimane in attesa 3 secondi per permettere di aggiungersi altri file in coda da riprodurre successivamente
-async def audio_player():
-    while True:
-        channel, file_name = await audio_queue.get()
-        try:
-            vc = await channel.connect()
-            #elif vc.channel.id != channel.id:
-            #   await vc.move_to(channel)
-            vc.play(discord.FFmpegPCMAudio(file_name))
-            while vc.is_playing():
-                await asyncio.sleep(3)
-            os.remove(file_name)
-            if vc and vc.is_connected():
-                await vc.disconnect()
-            audio_queue.task_done()
-        except Exception as e:
-            print(f"Error: {e}", flush=True)
+intents.message_content = True
+botDiscord = commands.Bot(command_prefix="!", intents=intents)
 
 
 # Questo metodo viene invocato quando il bot Discord viene avviato e viene inizializzato
-@bot.event
+@botDiscord.event
 async def on_ready():
-    bot.loop.create_task(audio_player())
-    print(f"Logged in as {bot.user.name} ({bot.user.id})", flush=True)
+    botDiscord.loop.create_task(ut.Utils(botDiscord).audio_player())
+    print(f"Logged in as {botDiscord.user.name} ({botDiscord.user.id})", flush=True)
     check_online.start()
+    try:
+        await botDiscord.tree.sync()
+        print("Synced")
+    except discord.Forbidden:
+        print("Unexpected forbidden from application scope.")
+    else:
+        print("You must be the owner to use this command")
 
 
 # Questo metodo verrà chiamato ogni 90 minuti in loop fino a quando il bot non viene interrotto
@@ -134,13 +88,12 @@ async def check_online():
     isOnAlexssio = False
     isOnLykanos = False
     isOnDarkLord = False
-    dark_Lord = await bot.fetch_user(id_dark_lord)
-    alexssio = await bot.fetch_user(id_alexssio)
+    dark_Lord = await botDiscord.fetch_user(id_dark_lord)
+    alexssio = await botDiscord.fetch_user(id_alexssio)
     # lykanos = await bot.fetch_user(id_lykanos)
     # user = bot.get_all_members()
-    for guild in bot.guilds:
+    for guild in botDiscord.guilds:
         for member in guild.members:
-            print("channel ok")
             if name_alexssio == member.name:
                 if member.status == discord.Status.online:
                     isOnAlexssio = True
@@ -152,8 +105,9 @@ async def check_online():
         await dark_Lord.send(message)
         await alexssio.send(message)
 
+
 # Questo metodo viene invocato ogni volta che c'è un cambio di stato sul member e su quale canale si è spostato
-@bot.event
+@botDiscord.event
 async def on_voice_state_update(member, before, after):
     # if after.self_stream:
     #     print(f"{member.name} sta trasmettendo uno streaming.")
@@ -179,10 +133,11 @@ async def on_voice_state_update(member, before, after):
         and before.channel != after.channel
     ):
         if after.channel:
-            await make_audio(member, after.channel.id)
+            await ut.Utils(botDiscord).make_audio(member, after.channel.id)
 
-# Questo metodo viene invocato ogni volta che il bot riceve un messaggio
-@bot.event
+
+# Questo metodo cattura i messaggi testuali
+@botDiscord.event
 async def on_message(message):
     if message.author.bot:
         return
@@ -192,17 +147,14 @@ async def on_message(message):
             print("hai domandato cose riguardo la Roma")
             await scraper.checkInfoFromSite()
             return
-    print(f"Messaggio ricevuto da {message.author}: {message_user}", flush=True)
-    if message.channel.id == int(chat_id_discord):
-        print(message_user)
-    if message_user != "":
+    if message_user != "" and message.channel.id == int(chat_for_ai_id_discord) or isinstance(message.channel, discord.DMChannel) or message.channel.id == int(chat_text_test_id):
         print(
             f"Messaggio ricevuto da {message.author}: {message_user}",
             flush=True,
         )
         try:
-            response = client.chat(
-                model="llama3",
+            response = clientAI.chat(
+                model="gemma2",
                 messages=[
                     {
                         "role": "user",
@@ -210,6 +162,7 @@ async def on_message(message):
                     },
                 ],
             )
+            print(f"Response bot: {response}", flush=True)
             responseFormatted = response["message"]["content"]
             await message.channel.send(content=responseFormatted[:1999])
             if len(responseFormatted) >= 1999:
@@ -222,5 +175,98 @@ async def on_message(message):
                 f"Si è verificato un errore durante l'elaborazione della richiesta. {e}"
             )
 
+
+async def get_info_bot(interaction: discord.Interaction):
+    await interaction.response.send_message("Ecco le info riguardo il bot :")
+    await interaction.channel.send(f"Sono un'assistente virtuale chiamato Er Vongola, super potente e cazzuto in grado di annunciare l'entrata di alcuni specifici utenti che lo desiderano, quando entrano in determinati canali vocali.") 
+    await interaction.channel.send(f"Può assistervi come farebbe una vera intelligenza artificiale attraverso la chat testuale 'parla-con-l-ia' o attraverso la sua chat privata.")
+    await interaction.channel.send(f"Scrivi / in una delle chat testuali a disposizione per visualizzare la lista dei comandi disponibili.")
+
+@botDiscord.tree.command(name="ping",description="It will show the ping latecy of the bot")
+async def ping(interaction: discord.Interaction):
+    await interaction.response.send_message(f"{round(botDiscord.latency * 1000)}ms")
+
+@botDiscord.tree.command(name="info",description="Mostra le informazioni riguardo al bot e al suo utilizzo")
+async def info(interaction: discord.Interaction):
+    await get_info_bot(interaction)
+
+@botDiscord.tree.command(name="help",description="Mostra aiuto e supporto riguardo al bot")
+async def help(interaction: discord.Interaction):
+    await get_info_bot(interaction)
+    await interaction.response.send_message(f"Per altro supporto contatta gli amministratori del server: Alexssio, Lykanos")
+
+
+# Funzione per generare casualmente una bestemmia scrivendola in chat e creando un file audio che riprodurrà immediatamente tramite il metodo text_to_speech
+@botDiscord.tree.command(name="bestemmia",description="Il Bot Er Vongola entrerà nel canale vocale e invierà un tot bestemmie")
+async def bestemmia(interaction: discord.Interaction, numerobestemmie: str):
+    user = interaction.user
+    voice_state = user.voice  
+    if numerobestemmie == "":
+        numerobestemmie = 1
+    else:
+        numerobestemmie = int(numerobestemmie)
+    await interaction.response.send_message(f"Sto generando {numerobestemmie} bestemmie, eccole...")
+    with open("blasfemia.json", "r") as file:
+        data = json.load(file)
+        startCounter = 1
+        for startCounter in range(int(numerobestemmie)):
+            custom_message = generatoreblasfemie.GeneratoreBlasfemie(data).frase_random()
+            await interaction.channel.send(custom_message)
+            await ut.Utils(botDiscord).text_to_speech(custom_message, startCounter, voice_state.channel.id)
+
+
+@botDiscord.tree.command(name="barzeletta", description="Genera una barzeletta")
+async def barzeletta(interaction: discord.Interaction):
+    print("porco")
+    await interaction.response.send_message(f"Sto generando una barzeletta, eccola...")
+    try:
+        response = clientAI.chat(
+            model="gemma2",
+            messages=[
+                {
+                    "role": "user",
+                    "content": "raccontami una barzeletta divertente e spassosa in italiano",
+                },
+            ],
+        )
+        responseFormatted = response["message"]["content"]
+        await interaction.channel.send(content=responseFormatted[:1999])
+        if len(responseFormatted) >= 1999:
+            for i in range(0, 1999, 1999):
+                await interaction.channel.send(content=responseFormatted[i : i + 1999])
+        print(responseFormatted, flush=True)
+        await ut.Utils(botDiscord).text_to_speech(responseFormatted, "barzeletta", interaction.channel.id)
+    except ollama.ResponseError as e:
+        print(e, flush=True)
+        await message.reply(
+            f"Si è verificato un errore durante l'elaborazione della richiesta. {e}"
+        )
+
+@botDiscord.tree.command(name="freddura", description="Genera una battuta")
+async def freddura(interaction: discord.Interaction):
+    try:
+        await interaction.response.send_message(f"Sto generando una freddura, eccola...")
+        response = clientAI.chat(
+            model="gemma2",
+            messages=[
+                {
+                    "role": "user",
+                    "content": "raccontami una freddura divertente oppure squallida oppure una battuta",
+                },
+            ],
+        )
+        responseFormatted = response["message"]["content"]
+        await interaction.channel.send(content=responseFormatted[:1999])
+        if len(responseFormatted) >= 1999:
+            for i in range(0, 1999, 1999):
+                await interaction.channel.send(content=responseFormatted[i : i + 1999])
+        print(responseFormatted, flush=True)
+        await ut.Utils(botDiscord).text_to_speech(responseFormatted, "freddura", interaction.channel.id)
+    except ollama.ResponseError as e:
+        print(e, flush=True)
+        await message.reply(
+            f"Si è verificato un errore durante l'elaborazione della richiesta. {e}"
+        )
+
 # Esegui il bot Discord
-bot.run(discord_token)
+botDiscord.run(discord_token)
