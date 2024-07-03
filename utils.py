@@ -1,3 +1,4 @@
+import re
 import asyncio
 from gtts import gTTS
 import json
@@ -13,6 +14,7 @@ chat_vocale_privato3 = "783252026766131222"
 id_melissa = "293497922870312961"
 id_black_panthera = "399979832038916101"
 id_burzum = "303199273418489857"
+id_alexssio = "190745296500686857"
 
 class Utils:
     def __init__(self, bot):
@@ -24,21 +26,21 @@ class Utils:
         # Genero il file audio contenente la frase costruita precedentemente
         tts = gTTS(custom_message, lang="it")
         # Salvo il file audio con il nome del membro associato
-        tts.save(f"welcome_message_{another_text_message}.mp3")
+        tts.save(f"audio_{another_text_message}.mp3")
         print(f"Message/command received by channel: {fromChannel}", flush=True)
         try:
             if not(fromChannel and isinstance(fromChannel, discord.VoiceChannel)):
                 print("Connecting to voice channel...", flush=True)
-                await audio_queue.put((channelPrivato, f"welcome_message_{another_text_message}.mp3"))
+                await audio_queue.put((channelPrivato, f"audio_{another_text_message}.mp3"))
             else:
                 print("Connecting to voice channel...", flush=True)
-                await audio_queue.put((fromChannel, f"welcome_message_{another_text_message}.mp3"))
+                await audio_queue.put((fromChannel, f"audio_{another_text_message}.mp3"))
         except Exception as e:
             print(f"Error: {e}", flush=True)
 
     async def make_audio(self, member, channelKey):
         # Apro la comunicazione con il file JSON per ottenermi la lista delle frasi
-        with open("frasieffetto.json", "r") as file:
+        with open("frasieffetto.json", "r", encoding='utf-8') as file:
             data = json.load(file)
         frasi = frasiconteggio.FrasiConteggio(data)
         # Ottengo il canale tramite il channelKey
@@ -57,10 +59,12 @@ class Utils:
                 custom_message = f"Pantera {frasedeffetto}"
             elif str(member.id) == id_melissa:
                 custom_message = f"Melissa {frasedeffetto}"
+            elif str(member.id) == id_alexssio:
+                custom_message = f"Alexssìo {frasedeffetto}"
             else:
                 custom_message = f"{member.name} {frasedeffetto}"
 
-            await self.text_to_speech(custom_message, member.name, channel.id)
+            await self.text_to_speech(custom_message, f"welcome_message_{member.name}", channel.id)
 
 
     # Questo metodo connette il bot al canale vocale se il canale non è vuoto e riproduce il file audio, 
@@ -81,3 +85,24 @@ class Utils:
                 audio_queue.task_done()
             except Exception as e:
                 print(f"Error: {e}", flush=True)
+
+    async def enumerate_messages(self, aiterator):
+        index = 0
+        async for item in aiterator:
+            yield index, item
+            index += 1
+    
+
+    async def leggi_notizie(self, interaction: discord.Interaction, countnews, channel_news):
+        patternTextAndUrl = r'\nLEGGI LA NOTIZIA -> http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+        patternUrl = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+        messages = []
+        if (channel_news != None and channel_news != ""):
+        # Ottieni le ultime 'n' notizie da channel_news con la funzione history
+            async for index, message in self.enumerate_messages(channel_news.history(limit=countnews)):
+                message.content = re.sub(patternTextAndUrl, '', message.content)
+                message.content = re.sub(patternUrl, '', message.content)
+                messages.append(message.content)
+                await self.text_to_speech(message.content, f"news_by_channel_{channel_news.id}_{index}", interaction.channel.id)
+
+            print(f"Notizie: {messages}", flush=True)

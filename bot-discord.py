@@ -3,9 +3,7 @@ from discord.ext import commands
 from discord import app_commands
 from discord.ext.tasks import loop
 from discord.utils import get
-from gtts import gTTS
 from dotenv import load_dotenv
-import asyncio
 import os
 import numpy as np
 from ollama import Client
@@ -16,9 +14,12 @@ from scrapegraphai.graphs import SmartScraperGraph
 import nest_asyncio
 import generatoreblasfemie
 import utils as ut
+import logging
 import scraper
+
 next_asyncio = nest_asyncio.apply()
 load_dotenv()
+logging.basicConfig(level=logging.INFO)
 
 # Configurazioni
 discord_token = os.getenv("DISCORD_TOKEN")
@@ -32,7 +33,12 @@ chat_vocale_privato = "707198443751211140"
 chat_vocale_privato2 = "707514058990944256"
 chat_vocale_privato3 = "783252026766131222"
 chat_text_test_id = "1256593273246453823"
+chat_news_tech = "1111287132242317384"
+chat_news_general = "1250740873105244192"
+chat_news_videogames = "798164535508336640"
+chat_afk = "679436863492194338"
 
+id_server_discord = "679423743017091083"
 name_dark_lord = "6dark6lord6"
 id_alexssio = "190745296500686857"
 name_alexssio = "alexssio"
@@ -57,13 +63,16 @@ keysQuestionRoma = [
     "biglietti",
     "biglietto",
 ]
-clientAI = Client(host="http://host.docker.internal:11434/api/generate -d")
+users_online = []
 
-audio_queue = asyncio.Queue()  # Coda per le richieste audio
+clientAI = Client(host="http://host.docker.internal:11434/api/generate -d")
 
 # Inizializzazione bot Discord
 intents = discord.Intents.all()
 intents.message_content = True
+intents.guilds = True
+intents.members = True
+intents.voice_states = True
 botDiscord = commands.Bot(command_prefix="!", intents=intents)
 
 
@@ -78,29 +87,22 @@ async def on_ready():
         print("Synced")
     except discord.Forbidden:
         print("Unexpected forbidden from application scope.")
-    else:
-        print("You must be the owner to use this command")
 
 
-# Questo metodo verrà chiamato ogni 90 minuti in loop fino a quando il bot non viene interrotto
-@loop(minutes=90)
+# Questo metodo verrà chiamato ogni 70 minuti in loop fino a quando il bot non viene interrotto
+@loop(minutes=70)
 async def check_online():
     isOnAlexssio = False
     isOnLykanos = False
     isOnDarkLord = False
     dark_Lord = await botDiscord.fetch_user(id_dark_lord)
     alexssio = await botDiscord.fetch_user(id_alexssio)
-    # lykanos = await bot.fetch_user(id_lykanos)
-    # user = bot.get_all_members()
-    for guild in botDiscord.guilds:
-        for member in guild.members:
-            if name_alexssio == member.name:
-                if member.status == discord.Status.online:
-                    isOnAlexssio = True
-            if name_lykanos == member.name:
-                if member.status == discord.Status.online:
-                    isOnLykanos = True
-
+    
+    for element in users_online:
+        if element["username"] == name_alexssio:
+            isOnAlexssio = True
+        if element["username"] == name_lykanos:
+            isOnLykanos = True
     if isOnAlexssio and isOnLykanos:
         await dark_Lord.send(message)
         await alexssio.send(message)
@@ -109,16 +111,6 @@ async def check_online():
 # Questo metodo viene invocato ogni volta che c'è un cambio di stato sul member e su quale canale si è spostato
 @botDiscord.event
 async def on_voice_state_update(member, before, after):
-    # if after.self_stream:
-    #     print(f"{member.name} sta trasmettendo uno streaming.")
-    # else:
-    #     print(f"{member.name} non sta trasmettendo uno streaming.")
-
-    # if before.channel:
-    #     print(f"canale prima {before.channel}", flush=True)
-    # if after.channel:
-    #     print(f"canale dopo {after.channel}", flush=True)
-
     if (
         (
             member.name == name_alexssio
@@ -134,6 +126,28 @@ async def on_voice_state_update(member, before, after):
     ):
         if after.channel:
             await ut.Utils(botDiscord).make_audio(member, after.channel.id)
+    
+    if (after.channel):
+        if len(users_online) == 0:
+            users_online.append(
+                    {
+                        "username":  member.name,
+                        "id":  member.id,
+                        "status": member.status.name,
+                        "channel": after.channel.name,
+                    }
+                )
+        else:
+            for name in users_online:
+                if after.channel.name != name["channel"] and member.name == name["username"] and after.channel.id != int(chat_afk):
+                    users_online[users_online.index(name)]["channel"] = after.channel.name 
+    elif before.channel != after.channel and after.channel == None:
+        for name in users_online:
+            if member.name == name["username"]:
+                users_online.remove(name)
+
+    print(f"{len(users_online)} utenti online: {users_online}", flush=True)
+
 
 
 # Questo metodo cattura i messaggi testuali
@@ -206,13 +220,14 @@ async def bestemmia(interaction: discord.Interaction, numerobestemmie: str):
     else:
         numerobestemmie = int(numerobestemmie)
     await interaction.response.send_message(f"Sto generando {numerobestemmie} bestemmie, eccole...")
-    with open("blasfemia.json", "r") as file:
+    with open("blasfemia.json", "r", encoding='utf-8') as file:
         data = json.load(file)
         startCounter = 1
         for startCounter in range(int(numerobestemmie)):
             custom_message = generatoreblasfemie.GeneratoreBlasfemie(data).frase_random()
             await interaction.channel.send(custom_message)
-            await ut.Utils(botDiscord).text_to_speech(custom_message, startCounter, voice_state.channel.id)
+            if (voice_state) and (voice_state.channel):
+                await ut.Utils(botDiscord).text_to_speech(custom_message, f"bestemmie_{startCounter}", voice_state.channel.id)
 
 
 @botDiscord.tree.command(name="barzeletta", description="Genera una barzeletta")
@@ -235,14 +250,17 @@ async def barzeletta(interaction: discord.Interaction):
             for i in range(0, 1999, 1999):
                 await interaction.channel.send(content=responseFormatted[i : i + 1999])
         print(responseFormatted, flush=True)
-        await ut.Utils(botDiscord).text_to_speech(responseFormatted, "barzeletta", interaction.channel.id)
+        if interaction.channel != None:
+            await ut.Utils(botDiscord).text_to_speech(responseFormatted, "barzeletta", interaction.channel.id)
+        else:
+            await interaction.response.send_message(f"Non posso leggerti la barzeletta perché non sei connesso a nessun canale vocale.", ephemeral=True)
     except ollama.ResponseError as e:
         print(e, flush=True)
         await message.reply(
             f"Si è verificato un errore durante l'elaborazione della richiesta. {e}"
         )
 
-@botDiscord.tree.command(name="freddura", description="Genera una battuta")
+@botDiscord.tree.command(name="freddura", description="Genera una freddura/battuta")
 async def freddura(interaction: discord.Interaction):
     try:
         await interaction.response.send_message(f"Sto generando una freddura, eccola...")
@@ -251,7 +269,7 @@ async def freddura(interaction: discord.Interaction):
             messages=[
                 {
                     "role": "user",
-                    "content": "raccontami una freddura divertente oppure squallida oppure una battuta",
+                    "content": "raccontami una freddura divertente o squallida oppure una battuta",
                 },
             ],
         )
@@ -261,12 +279,72 @@ async def freddura(interaction: discord.Interaction):
             for i in range(0, 1999, 1999):
                 await interaction.channel.send(content=responseFormatted[i : i + 1999])
         print(responseFormatted, flush=True)
-        await ut.Utils(botDiscord).text_to_speech(responseFormatted, "freddura", interaction.channel.id)
+        if (interaction.channel) != None:
+            await ut.Utils(botDiscord).text_to_speech(responseFormatted, "freddura", interaction.channel.id)
+        else:
+            await interaction.response.send_message(f"Non posso leggerti la freddura perché non sei connesso a nessun canale vocale.", ephemeral=True)
     except ollama.ResponseError as e:
         print(e, flush=True)
         await message.reply(
             f"Si è verificato un errore durante l'elaborazione della richiesta. {e}"
         )
+
+
+@botDiscord.tree.command(name="newstech", description="Entra nel canale vocale dove ti trovi e ti legge 'n' notizie riguardo l'ambito della tecnologia")
+async def newstech(interaction: discord.Interaction, countnews: str):
+    if countnews == "":
+        countnews = 1
+    else:
+        countnews = int(countnews)
+
+    channel_news_tech = botDiscord.get_channel(int(chat_news_tech))
+    if (channel_news_tech) != None:
+        await interaction.response.send_message(f"Ti sto per leggere {countnews} notizie riguardo l'ambito della tecnologia", ephemeral=True)
+        await ut.Utils(botDiscord).leggi_notizie(interaction, countnews, channel_news_tech)
+    else:
+        await interaction.response.send_message(f"Non posso leggerti la notizia perché non sei connesso a nessun canale vocale.", ephemeral=True)
+
+
+@botDiscord.tree.command(name="newsgeneral", description="Entra nel canale vocale dove ti trovi e ti legge 'n' notizie riguardo l'ambito generale")
+async def newsgeneral(interaction: discord.Interaction, countnews: str):
+    if countnews == "":
+        countnews = 1
+    else:
+        countnews = int(countnews)
+
+    channel_news_general = botDiscord.get_channel(int(chat_news_general))
+    if (channel_news_general) != None:
+        await interaction.response.send_message(f"Ti sto per leggere {countnews} notizie riguardo l'ambito generale, di cronaca", ephemeral=True)
+        await ut.Utils(botDiscord).leggi_notizie(interaction, countnews, channel_news_general)
+    else:
+        await interaction.response.send_message(f"Non posso leggerti la notizia perché non sei connesso a nessun canale vocale.", ephemeral=True)
+
+
+@botDiscord.tree.command(name="newsvideogames", description="Entra nel canale vocale dove ti trovi e ti legge 'n' notizie riguardo l'ambito dei videogames")
+async def newsvideogames(interaction: discord.Interaction, countnews: str):
+    if countnews == "":
+        countnews = 1
+    else:
+        countnews = int(countnews)
+
+    channel_news_videogames = botDiscord.get_channel(int(chat_news_videogames))
+    if (channel_news_videogames) != None:
+        await interaction.response.send_message(f"Ti sto per leggere {countnews} notizie riguardo l'ambito dei videogiochi", ephemeral=True)
+        await ut.Utils(botDiscord).leggi_notizie(interaction, countnews, channel_news_videogames)
+    else:
+        await interaction.response.send_message(f"Non posso leggerti la notizia perché non sei connesso a nessun canale vocale.", ephemeral=True)
+
+@botDiscord.tree.command(name="suggerimento", description="Invia un suggerimento per una nuova funzione")
+async def suggerimento(interaction: discord.Interaction, testo: str):
+    with open('suggerimenti.txt', 'a') as file:
+        file.write(f'{interaction.user}: {testo}\n')
+    await interaction.response.send_message('Grazie per il tuo suggerimento!')
+
+@check_online.before_loop
+async def before_monitor_members():
+    print('Avvio del monitoraggio dei membri...')
+    await botDiscord.wait_until_ready()
+
 
 # Esegui il bot Discord
 botDiscord.run(discord_token)
