@@ -5,6 +5,7 @@ import json
 import discord
 import frasiconteggio
 import os
+import uuid
 
 audio_queue = asyncio.Queue()  # Coda per le richieste audio
 
@@ -15,6 +16,9 @@ id_melissa = "293497922870312961"
 id_black_panthera = "399979832038916101"
 id_burzum = "303199273418489857"
 id_alexssio = "190745296500686857"
+id_carmineg = "275725325348896769"
+id_jordan = "379228448138461186"
+
 
 class Utils:
     def __init__(self, bot):
@@ -61,10 +65,14 @@ class Utils:
                 custom_message = f"Melissa {frasedeffetto}"
             elif str(member.id) == id_alexssio:
                 custom_message = f"Alexssìo {frasedeffetto}"
+            elif str(member.id) == id_carmineg:
+                custom_message = f"Carmine {frasedeffetto}"
+            elif str(member.id) == id_jordan:
+                custom_message = f"Jordan {frasedeffetto}"
             else:
                 custom_message = f"{member.name} {frasedeffetto}"
 
-            await self.text_to_speech(custom_message, f"welcome_message_{member.name}", channel.id)
+            await self.text_to_speech(custom_message, f"welcome_message_{member.name}_{str(uuid.uuid4())}", channel.id)
 
 
     # Questo metodo connette il bot al canale vocale se il canale non è vuoto e riproduce il file audio, 

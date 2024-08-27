@@ -18,6 +18,7 @@ RUN apt-get update
 RUN apt-get install -y ffmpeg
 # RUN pip install -r requirement.txt
 RUN pip install setuptools-rust
+RUN pip install python-dotenv
 RUN pip install playwright
 RUN pip install PyNaCl
 RUN pip install gtts 
@@ -26,8 +27,8 @@ RUN pip install langchain
 RUN pip install streamlit
 RUN pip install nest_asyncio
 RUN pip install -U openai-whisper
-RUN pip install scrapegraphai
-RUN pip install numpy 
+# RUN pip install burr
+# RUN pip install scrapegraphai
 RUN pip install imageio
 RUN pip install discord.py 
 
