@@ -68,14 +68,18 @@ id_roles = {
 
 messageTheyAre = "Lykanos e Alexssio sono online, se vuoi vai a fargli compagnia... Stronzo."
 isOnChannel_users = {
-    "isOnAlexssio": False,
-    "isOnLykanos": False,
-    "isOnDarkLord": False
+    "isOnChannelAlexssio": False,
+    "isOnChannelLykanos": False,
+    "isOnChannelDarkLord": False,
+    "isOnChannelBurzum": False,
+    "isOnChannelBlackPanthera666": False
 }
 isOn_Users = {
     "isOnAlexssio": False,
     "isOnLykanos": False,
-    "isOnDarkLord": False
+    "isOnDarkLord": False,
+    "isOnChannelBlackPanthera666": False,
+    "isOnBurzum": False
 }
 
 keysQuestionRoma = [
@@ -102,6 +106,10 @@ botDiscord = commands.Bot(command_prefix="!", intents=intents)
 # Questo metodo viene invocato quando il bot Discord viene avviato e viene inizializzato
 @botDiscord.event
 async def on_ready():
+    """
+    Questo metodo viene invocato quando il bot Discord viene avviato e viene inizializzato
+    """
+
     botDiscord.loop.create_task(ut.Utils(botDiscord).audio_player())
     print(f"Logged in as {botDiscord.user.name} ({botDiscord.user.id})", flush=True)
     check_online.start()
@@ -115,37 +123,52 @@ async def on_ready():
 # Questo metodo verrà chiamato ogni 70 minuti in loop fino a quando il bot non viene interrotto
 @loop(minutes=70)
 async def check_online():
+    """
+    Questo metodo verrà chiamato ogni 70 minuti in loop fino a quando il bot non viene interrotto
+    """
+
     dark_Lord = await botDiscord.fetch_user(id_users["dark_lord"])
     alexssio = await botDiscord.fetch_user(id_users["alexssio"])
-    if isOnChannel_users["isOnAlexssio"] and isOnChannel_users["isOnLykanos"] and isOn_Users["isOnAlexssio"] and isOn_Users["isOnLykanos"] and not isOn_Users["isOnDarkLord"]:
+    if isOnChannel_users["isOnChannelAlexssio"] and isOnChannel_users["isOnChannelLykanos"] and isOn_Users["isOnAlexssio"] and isOn_Users["isOnLykanos"] and not isOn_Users["isOnDarkLord"]:
         await dark_Lord.send(messageTheyAre)
         await alexssio.send(messageTheyAre)
 
-    print(f"{len(users_online)} utenti online: {users_online}", flush=True)
+    #print(f"{len(users_online)} utenti online: {users_online}", flush=True)
 
 
-# Questo metodo viene invocato ogni volta che c'è un cambio di stato sul member e su quale canale si è spostato
 @botDiscord.event
 async def on_voice_state_update(member, before, after):
-    print(f"Canale prima: {before.channel}, Canale dopo: {after.channel}, Utente: {member.name}", flush=True)
+    """
+    Questo metodo viene invocato ogni volta che c'è un cambio di stato sul member e su quale canale si è spostato
+    """
 
-    if member.name.lower() in names_users.values():
-        # Se l'utente è entrato in un canale vocale
-        if after.channel and (before.channel != after.channel):
+    print(f"Canale prima: {before.channel}, Canale dopo: {after.channel}, Utente: {member.name}", flush=True)
+    if member.name in names_users.values():
+        if before.channel and before.channel.id in (int(chats_database["chat_afk"]),int(chats_database["chat_studio"])):
+            sync_user_status(member, online=False)
+        
+        if after.channel and after.channel.id in (int(chats_database["chat_afk"]), int(chats_database["chat_studio"])):
+            sync_user_status(member, online=False)
+
+        if after.channel is None:
+            sync_user_status(member, online=False)    
+        
+        if after.channel and after.channel is not None and after.channel.id not in (int(chats_database["chat_afk"]), int(chats_database["chat_studio"])) and before.channel != after.channel:
             sync_user_status(member, online=True)
             await ut.Utils(botDiscord).make_audio(member, after.channel.id)
-        
-        # Se l'utente è uscito da un canale vocale o ha cambiato stato
-        elif not after.channel or (before.channel and not after.channel):
-            sync_user_status(member, online=False)
 
     print(f"{len(users_online)} utenti online: {users_online}", flush=True)
 
 
 def check_user_online(username, status):
+    """
+    Questo metodo controlla se l'utente è online o no
+    """
+
     global users_online
     if status == "offline":
         for user in users_online:
+            # Se l'utente non è online, rimuovi l'utente dalla lista
             users_online.pop(users_online.index(user))
             return
 
@@ -163,8 +186,8 @@ def check_user_online(username, status):
         update_user_status(username, status)
 
 def update_user_status(username, status):
+    """Aggiorna gli stati in base allo status"""
 
-    # Aggiorna gli stati in base allo status
     if username == names_users["alexssio"]:
         isOnChannel_users["isOnAlexssio"] = (status == "online")
     elif username == names_users["lykanos"]:
@@ -174,14 +197,17 @@ def update_user_status(username, status):
 
 
 def sync_user_status(member, online=True):
+    """
+    Questo metodo sincronizza lo stato dell'utente con la lista degli utenti monitorati
+    """
+
     global users_online
 
     username = member.name.lower()
 
     if username not in names_users.values():
         return  # Non è uno degli utenti monitorati
-
-    # Mappa il nome utente alla chiave del dizionario
+    
     user_key = next((key for key, value in names_users.items() if value == username), None)
     if user_key is None:
         return  # Nome utente non trovato
@@ -197,8 +223,6 @@ def sync_user_status(member, online=True):
             isOn_Users[f'isOn{user_key.capitalize()}'] = False
             if username in users_online:
                 users_online.remove(username)
-
-    print(f"{username} è {'online' if online else 'offline'}. Lista utenti online: {users_online}", flush=True)
 
 
 
@@ -244,10 +268,13 @@ def sync_user_status(member, online=True):
 
 @botDiscord.tree.command(name="ping",description="It will show the ping latecy of the bot")
 async def ping(interaction: discord.Interaction):
+    """It will show the ping latecy of the bot"""
     await interaction.response.send_message(f"{round(botDiscord.latency * 1000)}ms")
 
 @botDiscord.tree.command(name="help", description="Mostra aiuto e supporto riguardo al bot")
 async def info_help(interaction: discord.Interaction):
+    """Mostra aiuto e supporto riguardo al bot"""
+
     await interaction.response.send_message("Ecco le info riguardo il bot :")
     await interaction.channel.send(f"Sono un'assistente virtuale chiamato Er Vongola, super potente e cazzuto in grado di annunciare l'entrata di alcuni specifici utenti che lo desiderano, quando entrano in determinati canali vocali.") 
     await interaction.channel.send(f"Può assistervi come farebbe una vera intelligenza artificiale attraverso la chat testuale 'parla-con-l-ia' o attraverso la sua chat privata.")
@@ -255,6 +282,7 @@ async def info_help(interaction: discord.Interaction):
 
 @botDiscord.tree.command(name="avvisadarklord",description="Manda un messaggio a DarkLord per comunicargli che siamo online...")
 async def sendmessage_darklord(interaction: discord.Interaction):
+    """Manda un messaggio a DarkLord per comunicargli che siamo online..."""
     member = interaction.user
     has_role = any(role.id == int(id_roles["corpo_di_ricerca"]) or role.id == int(id_roles["dark_lord"]) for role in member.roles)
     if has_role:
@@ -270,6 +298,7 @@ async def sendmessage_darklord(interaction: discord.Interaction):
 # Funzione per generare casualmente una bestemmia scrivendola in chat e creando un file audio che riprodurrà immediatamente tramite il metodo text_to_speech
 @botDiscord.tree.command(name="bestemmia",description="Il Bot Er Vongola entrerà nel canale vocale e invierà un tot bestemmie")
 async def bestemmia(interaction: discord.Interaction, numerobestemmie: str):
+    """Il Bot Er Vongola entrerà nel canale vocale e invierà un tot bestemmie"""
     user = interaction.user
     voice_state = user.voice  
     if numerobestemmie == "":
@@ -289,7 +318,7 @@ async def bestemmia(interaction: discord.Interaction, numerobestemmie: str):
 
 @botDiscord.tree.command(name="barzelletta", description="Genera una barzelletta")
 async def barzeletta(interaction: discord.Interaction):
-    print("porco")
+    """Genera una barzelletta, entra nel canale vocale e la riproduce"""
     await interaction.response.send_message(f"Sto generando una barzeletta, eccola...")
     try:
         response = clientAI.chat(
@@ -319,6 +348,9 @@ async def barzeletta(interaction: discord.Interaction):
 
 @botDiscord.tree.command(name="freddura", description="Genera una freddura/battuta")
 async def freddura(interaction: discord.Interaction):
+    """
+    Genera una freddura/battuta, entra nel canale vocale e la riproduce
+    """
     try:
         await interaction.response.send_message(f"Sto generando una freddura, eccola...")
         response = clientAI.chat(
@@ -349,6 +381,9 @@ async def freddura(interaction: discord.Interaction):
 
 @botDiscord.tree.command(name="newstech", description="Entra nel canale vocale dove ti trovi e ti legge 'n' notizie riguardo l'ambito della tecnologia")
 async def newstech(interaction: discord.Interaction, countnews: str):
+    """
+    Entra nel canale vocale dove ti trovi e ti legge tot -> 'countnews' notizie riguardo l'ambito della tecnologia"""
+
     if countnews == "":
         countnews = 1
     else:
@@ -364,6 +399,8 @@ async def newstech(interaction: discord.Interaction, countnews: str):
 
 @botDiscord.tree.command(name="newsgeneral", description="Entra nel canale vocale dove ti trovi e ti legge 'n' notizie riguardo l'ambito generale")
 async def newsgeneral(interaction: discord.Interaction, countnews: str):
+    """Entra nel canale vocale dove ti trovi e ti legge 'n' notizie riguardo l'ambito generale"""
+
     if countnews == "":
         countnews = 1
     else:
@@ -379,6 +416,8 @@ async def newsgeneral(interaction: discord.Interaction, countnews: str):
 
 @botDiscord.tree.command(name="newsvideogames", description="Entra nel canale vocale dove ti trovi e ti legge 'n' notizie riguardo l'ambito dei videogames")
 async def newsvideogames(interaction: discord.Interaction, countnews: str):
+    """Entra nel canale vocale dove ti trovi e ti legge 'n' notizie riguardo l'ambito dei videogames"""
+
     if countnews == "":
         countnews = 1
     else:
@@ -393,9 +432,24 @@ async def newsvideogames(interaction: discord.Interaction, countnews: str):
 
 @botDiscord.tree.command(name="suggerimento", description="Invia un suggerimento per una nuova funzione")
 async def suggerimento(interaction: discord.Interaction, testo: str):
+    """Invia un suggerimento per una nuova funzione per il bot"""
+
     with open('suggerimenti.txt', 'a') as file:
         file.write(f'{interaction.user}: {testo}\n')
     await interaction.response.send_message('Grazie per il tuo suggerimento!')
+
+@botDiscord.tree.command(name="playmusic", description="Riproduce audio da YouTube nel canale vocale con un volume di default di 100% o volume impostato")
+async def play_music(interaction: discord.Interaction, url: str, volume: int = 100):
+    """Riproduce audio da YouTube nel canale vocale con un volume di default di 100% o volume impostato"""
+
+    await ut.Utils(botDiscord).play_music(interaction, url, volume)
+
+@botDiscord.tree.command(name="stop", description="Ferma la riproduzione audio e disconnette il bot dal canale vocale")
+async def stop(interaction: discord.Interaction):
+    """Ferma la riproduzione audio e disconnette il bot dal canale vocale"""
+
+    await ut.Utils(botDiscord).stop(interaction)
+
 
 @check_online.before_loop
 async def before_monitor_members():
