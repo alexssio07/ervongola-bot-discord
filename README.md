@@ -33,3 +33,6 @@ Se necessario
 - ``` /suggerimento ``` **Invia un suggerimento per una nuova funzione**
 - ``` /play_music ``` **Riproduce audio da YouTube nel canale vocale con un volume di default di 100% o volume impostato**
 - ``` /stop ``` **Ferma la riproduzione audio e disconnette il bot dal canale vocale**
+
+
+![Copertina](ervongola-banner.jpeg)
