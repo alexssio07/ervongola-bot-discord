@@ -4,7 +4,7 @@ Assistente virtuale chiamato Er Vongola, super potente e cazzuto in grado di ann
 
 - **Versione Python utilizzata 3.10.2 64bit**
 - **Librerie utilizzate Discord API, dotenv, os, ollama, json, streamlit, nest_asyncio, logging, yt-dlp, re, asyncio, gTTS, uuid, random, SmartScraperGraph**
-- **Package interni separati generatoreblasfemie, utils, frasiconteggio**
+- **Package interni separati generatoreblasfemie, utils, frasiconteggio, voice_manager**
 
 
 ### COMANDI DA ESEGUIRE
