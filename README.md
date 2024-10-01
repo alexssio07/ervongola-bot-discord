@@ -24,7 +24,6 @@ Se necessario
 - ``` /ping ``` > **It will show the ping latecy of the bot**
 - ``` /info_help ``` > **Mostra aiuto e supporto riguardo al bot**
 - ``` /avvisadarklord ``` > **Manda un messaggio a DarkLord per comunicargli che siamo online...**
-- ``` /bestemmia ``` > **Il Bot Er Vongola entrerà nel canale vocale e invierà un tot bestemmie causali**
 - ``` /barzelletta ``` > **Genera una barzelletta, entra nel canale vocale e la riproduce**
 - ``` /freddura ``` > **Genera una freddura/battuta, entra nel canale vocale e la riproduce**
 - ``` /newstech ``` > **Entra nel canale vocale dove ti trovi e ti legge tot -> 'countnews' notizie riguardo l'ambito della tecnologia**
@@ -33,6 +32,11 @@ Se necessario
 - ``` /suggerimento ``` > **Invia un suggerimento per una nuova funzione**
 - ``` /play_music ``` > **Riproduce audio da YouTube nel canale vocale con un volume di default di 100% o volume impostato**
 - ``` /stop ``` > **Ferma la riproduzione audio e disconnette il bot dal canale vocale**
+<details>
+  <summary>Avviso per le persone sensibili a parole o blasfemie</summary>
+  
+- ``` /bestemmia ``` > **Il Bot Er Vongola entrerà nel canale vocale e invierà un tot bestemmie causali**
 
+</details>
 
 ![Copertina](ervongola-banner.jpeg)
