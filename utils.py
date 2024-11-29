@@ -1,16 +1,19 @@
 import re
+import discord
 import asyncio
 from gtts import gTTS
 import json
-import discord
-import frasiconteggio
+import frasiconteggio as frasiconteggio
 import os
 import uuid
 import yt_dlp as youtube_dl
 import voice_manager as vc
+import speech_recognition as sr
 
 audio_queue = asyncio.Queue()  # Coda per le richieste audio
 stop_event = asyncio.Event()  # Evento per fermare le operazioni asincrone
+
+# model = whisper.load_model("small")
 
 chat_vocale_privato = "707198443751211140"
 chat_vocale_privato2 = "707514058990944256"
@@ -28,12 +31,27 @@ id_users = {
 
 id_jordan = "379228448138461186"
 
+recognizer = sr.Recognizer()
+
 
 async def text_to_speech(botDiscord, custom_message, another_text_message, channelId):
     channelPrivato = botDiscord.get_channel(int(chat_vocale_privato))
     fromChannel = botDiscord.get_channel(channelId)
+    notiziaSplit = []
+    isPresent = False
+    if (
+        "Clicca sul link sottostante per continuare a leggere la notizia"
+        in custom_message
+    ):
+        isPresent = True
+        notiziaSplit = custom_message.split(
+            "Clicca sul link sottostante per continuare a leggere la notizia"
+        )
     # Genero il file audio contenente la frase costruita precedentemente
-    tts = gTTS(custom_message, lang="it")
+    if isPresent and notiziaSplit.count > 0:
+        tts = gTTS(notiziaSplit[0], lang="it")
+    else:
+        tts = gTTS(custom_message, lang="it")
     # Salvo il file audio con il nome del membro associato
     tts.save(f"audio_{another_text_message}.mp3")
     print(f"Message/command received by channel: {fromChannel}", flush=True)
@@ -52,7 +70,7 @@ async def make_audio(botDiscord, member, channelKey):
     if stop_event.is_set():  # Verifica se il comando di stop è stato dato
         return  # Esce immediatamente se lo stop è attivo
     # Apro la comunicazione con il file JSON per ottenermi la lista delle frasi
-    with open("frasieffetto.json", "r", encoding="utf-8") as file:
+    with open("json/frasieffetto.json", "r", encoding="utf-8") as file:
         data = json.load(file)
     frasi = frasiconteggio.FrasiConteggio(data)
     # Ottengo il canale tramite il channelKey
@@ -218,15 +236,72 @@ async def leggi_notizie(
     messages = []
     if channel_news != None and channel_news != "":
         # Ottieni le ultime 'n' notizie da channel_news con la funzione history
-        async for index, message in botDiscord.enumerate_messages(
+        async for index, message in enumerate_messages(
             channel_news.history(limit=countnews)
         ):
             message.content = re.sub(patternTextAndUrl, "", message.content)
             message.content = re.sub(patternUrl, "", message.content)
             messages.append(message.content)
-            await botDiscord.text_to_speech(
+            await text_to_speech(
+                botDiscord,
                 message.content,
                 f"news_by_channel_{channel_news.id}_{index}",
                 interaction.channel.id,
             )
         print(f"Notizie: {messages}", flush=True)
+
+
+async def leggi_giochi_gratis(
+    botDiscord, interaction: discord.Interaction, countnews, channel_news
+):
+    messages = []
+    if channel_news != None and channel_news != "":
+        # Ottieni le ultime 'n' notizie da channel_news con la funzione history
+        async for index, message in enumerate_messages(
+            channel_news.history(limit=countnews)
+        ):
+            messages.append(message.content)
+            await text_to_speech(
+                message.content,
+                f"news_by_channel_{channel_news.id}_{index}",
+                interaction.channel.id,
+            )
+        print(f"Notizie: {messages}", flush=True)
+
+
+async def join_and_listen(ctx):
+    voice_channel = ctx.author.voice.channel
+    if voice_channel is not None:
+        vc = await voice_channel.connect()
+        # TO DO >> DA CORREGERE
+        # await listen_audio(vc)
+
+
+# async def listen_audio(vc):
+#     while not stop_event.is_set():
+#         # Registra l'audio direttamente dal canale vocale
+#         audio_source = discord.PCMAudio(
+#             "mic"
+#         )  # Questo richiede un microfono collegato al bot
+#         vc.play(PCMVolumeTransformer(audio_source))
+
+#         # Usa Whisper per trascrivere l'audio
+#         with sr.AudioFile(
+#             "mic"
+#         ) as source:  # Il bot deve avere accesso a un microfono per catturare l'audio
+#             audio = recognizer.record(source)
+#             # TO DO FIXA IL MODELLO
+#             text = recognizer.recognize_whisper(model)
+
+#         # print(f"Transcription: {text}")
+
+#         # Verifica se la parola chiave è stata detta
+#         if "vongola" in text.lower():
+#             print("Parola chiave rilevata! Eseguo il comando...")
+#             await trigger_event(vc)
+
+
+async def trigger_event(vc):
+    # Esegui un'azione quando la parola chiave è rilevata
+    await vc.disconnect()
+    print("Azione eseguita!")
