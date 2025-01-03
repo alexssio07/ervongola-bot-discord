@@ -1,25 +1,20 @@
 import discord
 from discord.ext import commands
-from discord import app_commands
+from discord import ActivityType, CustomActivity, Game, Streaming, Spotify
 from discord.ext.tasks import loop
-from discord.utils import get
 from dotenv import load_dotenv
 import os
 from ollama import Client
 import ollama
 import json
-import streamlit as st
 import nest_asyncio
 import generatoreblasfemie
 import utils as ut
-import logging
-import voice_manager as vc
 
 # import scraper
 
 nest_asyncio.apply()
 load_dotenv()
-logging.basicConfig(level=logging.INFO)
 
 # Configurazioni
 discord_token = os.getenv("DISCORD_TOKEN")
@@ -36,15 +31,17 @@ chats_database = {
     "chat_news_tech": "1111287132242317384",
     "chat_news_general": "1250740873105244192",
     "chat_news_videogames": "798164535508336640",
+    "chat_free_games": "1277205224381087754",
     "chat_afk": "679436863492194338",
     "chat_studio": "1242219732938264596",
+    "chat_testing": "1278301118094376971",
 }
 
 id_users = {
     "alexssio": "190745296500686857",
     "lykanos": "366952021045280779",
     "dark_lord": "271371380467957762",
-    "blackpanthera666": "399979832038916101",
+    "moonpantherredxvi": "399979832038916101",
     "melissa": "293497922870312961",
     "burzum": "303199273418489857",
     "carmineg": "275725325348896769",
@@ -54,16 +51,20 @@ names_users = {
     "alexssio": "alexssio",
     "lykanos": "lykanos94",
     "dark_lord": "6dark6lord6",
-    "blackpanthera666": "blackpanthera666",
+    "pantera": "moonpantherredxvi",
     "melissa": "melissa",
     "burzum": "crypo1398",
     "wolfvf": "wolfvf",
     ".carmineg": ".carmineg",
 }
 
-id_roles = {"corpo_di_ricerca": "1109819956524224532", "supremo": "679447959309516830"}
+id_roles = {
+    "corpo_di_ricerca": "1109819956524224532",
+    "supremo": "679447959309516830",
+    "SNC": "1256877870798602261",
+}
 
-# id_server_discord = "679423743017091083"
+id_server_discord = "679423743017091083"
 # id_bot_ervongola = "1205585120187261000"
 
 messageTheyAre = (
@@ -114,6 +115,8 @@ async def on_ready():
     check_online.start()
     try:
         await botDiscord.tree.sync()
+        # for guild in botDiscord.guilds:
+        #     print(f"Nome del Server: {guild.name}, ID del Server: {guild.id}")
         print("Synced")
     except discord.Forbidden:
         print("Unexpected forbidden from application scope.")
@@ -137,6 +140,40 @@ async def check_online():
     ):
         await dark_Lord.send(messageTheyAre)
         await alexssio.send(messageTheyAre)
+
+    guild = botDiscord.get_guild(int(id_server_discord))
+    if guild is None:
+        print(f"Il server con ID {id_server_discord} non è stato trovato.")
+        return
+
+    # Itera sui membri del server
+    for member in guild.members:
+        if member.bot:  # Ignora i bot
+            continue
+
+        # Itera sulle attività dell'utente
+        for activity in member.activities:
+            # print(member.activities)
+            if isinstance(activity, Game) or activity.type == ActivityType.playing:
+                print(f"{member.name} sta giocando a {activity.name}")
+            if (
+                isinstance(activity, Streaming)
+                or activity.type == ActivityType.streaming
+            ):
+                print(
+                    f"{member.name} sta facendo streaming di {activity.name} su {activity.platform}"
+                )
+            if isinstance(activity, Spotify) or activity.type == ActivityType.listening:
+                print(
+                    f"{member.name} sta ascoltando {activity.title} di {activity.artist}"
+                )
+            if (
+                isinstance(activity, CustomActivity)
+                or activity.type == ActivityType.custom
+            ):
+                print(f"{member.name} sta facendo {activity.name} su qualcosa...")
+
+    print("Controllo delle attività completato.")
 
     # print(f"{len(users_online)} utenti online: {users_online}", flush=True)
 
@@ -177,43 +214,6 @@ async def on_voice_state_update(member, before, after):
             await ut.make_audio(botDiscord, member, after.channel.id)
 
     print(f"{len(users_online)} utenti online: {users_online}", flush=True)
-
-
-def check_user_online(username, status):
-    """
-    Questo metodo controlla se l'utente è online o no
-    """
-
-    global users_online
-    if status == "offline":
-        for user in users_online:
-            # Se l'utente non è online, rimuovi l'utente dalla lista
-            users_online.pop(users_online.index(user))
-            return
-
-    # Se la lista degli utenti online è vuota, aggiungi il primo utente
-    if len(users_online) == 0:
-        users_online.append(username)
-        update_user_status(username, status)
-        return
-    # Se l'utente è già nella lista, aggiorna lo status
-    if username in users_online:
-        update_user_status(username, status)
-    else:
-        # Se l'utente non è nella lista, aggiungilo
-        users_online.append(username)
-        update_user_status(username, status)
-
-
-def update_user_status(username, status):
-    """Aggiorna gli stati in base allo status"""
-
-    if username == names_users["alexssio"]:
-        isOnChannel_users[f"isOn{names_users['alexssio']}"] = status == "online"
-    elif username == names_users["lykanos"]:
-        isOnChannel_users[f"isOn{names_users['lykanos']}"] = status == "online"
-    elif username == names_users["dark_lord"]:
-        isOnChannel_users[f"isOn{names_users['dark_lord']}"] = status == "online"
 
 
 def sync_user_status(member, online=True):
@@ -316,16 +316,18 @@ async def info_help(interaction: discord.Interaction):
 
 @botDiscord.tree.command(
     name="avvisadarklord",
-    description="Manda un messaggio a DarkLord per comunicargli che siamo online...",
+    description="Manda un messaggio a DarkLord per comunicargli che siamo online... Comando PRIVATO",
 )
 async def sendmessage_darklord(interaction: discord.Interaction):
     """Manda un messaggio a DarkLord per comunicargli che siamo online..."""
     member = interaction.user
+
     has_role = any(
         role.id == int(id_roles["corpo_di_ricerca"])
         or role.id == int(id_roles["supremo"])
         for role in member.roles
     )
+    # Controlla se l'utente ha il ruolo richiesto per inviare il messaggio
     if has_role:
         dark_Lord = await botDiscord.fetch_user(id_users["dark_lord"])
         alexssio = await botDiscord.fetch_user(id_users["alexssio"])
@@ -344,32 +346,42 @@ async def sendmessage_darklord(interaction: discord.Interaction):
     description="Il Bot Er Vongola entrerà nel canale vocale e invierà un tot bestemmie",
 )
 async def bestemmia(interaction: discord.Interaction, numerobestemmie: str):
-    """Il Bot Er Vongola entrerà nel canale vocale e invierà un tot bestemmie"""
+    """Il Bot Er Vongola entrerà nel canale vocale e invierà un tot bestemmie causali"""
+    voice_state = interaction.user.voice
+    channel_id = interaction.channel.id
+    user_role_ids = [role.id for role in interaction.user.roles]
 
-    user = interaction.user
-    voice_state = user.voice
-    if numerobestemmie == "":
-        numerobestemmie = 1
+    if (
+        str(channel_id)
+        in [chats_database["chat_blasfemie_id_discord"], chats_database["chat_testing"]]
+        and int(id_roles["SNC"]) in user_role_ids
+    ) or int(id_roles["supremo"]) in user_role_ids:
+        if numerobestemmie == "":
+            numerobestemmie = 1
+        else:
+            numerobestemmie = int(numerobestemmie)
+        await interaction.response.send_message(
+            f"Sto generando {numerobestemmie} bestemmie, eccole..."
+        )
+        with open("json/blasfemia.json", "r", encoding="utf-8") as file:
+            data = json.load(file)
+            startCounter = 1
+            for startCounter in range(int(numerobestemmie)):
+                custom_message = generatoreblasfemie.GeneratoreBlasfemie(
+                    data
+                ).frase_random()
+                await interaction.channel.send(custom_message)
+                if (voice_state) and (voice_state.channel):
+                    await ut.text_to_speech(
+                        botDiscord,
+                        custom_message,
+                        f"bestemmie_{startCounter}",
+                        voice_state.channel.id,
+                    )
     else:
-        numerobestemmie = int(numerobestemmie)
-    await interaction.response.send_message(
-        f"Sto generando {numerobestemmie} bestemmie, eccole..."
-    )
-    with open("blasfemia.json", "r", encoding="utf-8") as file:
-        data = json.load(file)
-        startCounter = 1
-        for startCounter in range(int(numerobestemmie)):
-            custom_message = generatoreblasfemie.GeneratoreBlasfemie(
-                data
-            ).frase_random()
-            await interaction.channel.send(custom_message)
-            if (voice_state) and (voice_state.channel):
-                await ut.text_to_speech(
-                    botDiscord,
-                    custom_message,
-                    f"bestemmie_{startCounter}",
-                    voice_state.channel.id,
-                )
+        await interaction.response.send_message(
+            "Non sei nel canale giusto oppure non hai il ruolo per poter lanciare questo comando."
+        )
 
 
 @botDiscord.tree.command(name="barzelletta", description="Genera una barzelletta")
@@ -537,12 +549,41 @@ async def newsvideogames(interaction: discord.Interaction, countnews: str):
 
 
 @botDiscord.tree.command(
+    name="freevideogames",
+    description="Ti legge l'ultimo gioco gratis del momento su Epic Games Store e/o Steam",
+)
+async def freevideogames(interaction: discord.Interaction):
+    """Entra nel canale vocale dove ti trovi e ti legge i giochi gratuiti del momento su Epic Games Store e/o Steam"""
+
+    channel_free_videogames = botDiscord.get_channel(
+        int(chats_database["chat_free_games"])
+    )
+    if (channel_free_videogames) != None:
+        await interaction.response.send_message(
+            f"Ti sto per leggere il nome del gioco gratuito del momento su Epic Games Store e/o Steam",
+            ephemeral=True,
+        )
+        name_videogame_free = await ut.leggi_giochi_gratis(
+            botDiscord, interaction, channel_free_videogames
+        )
+        if name_videogame_free != "" and name_videogame_free != None:
+            await interaction.channel.send(
+                f"Al momento è disponibile {name_videogame_free}"
+            )
+    else:
+        await interaction.response.send_message(
+            f"Non posso leggerti la notizia perché non sei connesso a nessun canale vocale.",
+            ephemeral=True,
+        )
+
+
+@botDiscord.tree.command(
     name="suggerimento", description="Invia un suggerimento per una nuova funzione"
 )
 async def suggerimento(interaction: discord.Interaction, testo: str):
     """Invia un suggerimento per una nuova funzione per il bot"""
 
-    with open("suggerimenti.txt", "a") as file:
+    with open("app/outfiles/suggerimenti.txt", "a") as file:
         file.write(f"{interaction.user}: {testo}\n")
     await interaction.response.send_message("Grazie per il tuo suggerimento!")
 
@@ -567,12 +608,22 @@ async def stop(interaction: discord.Interaction):
     await ut.stop(interaction)
 
 
+@botDiscord.tree.command(
+    name="joinandlisten",
+    description="IN BETA TEST >> Unisce il bot al canale vocale e inizia a leggere audio",
+)
+async def joinandlisten(interaction: discord.Interaction):
+    """Unisce il bot al canale vocale e inizia a leggere audio"""
+
+    await ut.join_and_listen(interaction)
+
+
 @check_online.before_loop
 async def before_monitor_members():
     print("Avvio del monitoraggio dei membri...")
     await botDiscord.wait_until_ready()
 
 
-# Esegui il bot Discord
+# Esegui il bot Discord e inizializza il monitoraggio degli utenti
 users_online = []
 botDiscord.run(discord_token)

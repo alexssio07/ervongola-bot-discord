@@ -23,13 +23,13 @@ id_users = {
     "alexssio": "190745296500686857",
     "lykanos": "366952021045280779",
     "dark_lord": "271371380467957762",
-    "blackpanthera666": "399979832038916101",
+    "moonpantherredxvi": "399979832038916101",
     "melissa": "293497922870312961",
     "burzum": "303199273418489857",
     "carmineg": "275725325348896769",
+    "speransia": "262262693103140864",
 }
-
-id_jordan = "379228448138461186"
+READ_NEWS_FILE = "json/read_news.json"
 
 recognizer = sr.Recognizer()
 
@@ -37,21 +37,7 @@ recognizer = sr.Recognizer()
 async def text_to_speech(botDiscord, custom_message, another_text_message, channelId):
     channelPrivato = botDiscord.get_channel(int(chat_vocale_privato))
     fromChannel = botDiscord.get_channel(channelId)
-    notiziaSplit = []
-    isPresent = False
-    if (
-        "Clicca sul link sottostante per continuare a leggere la notizia"
-        in custom_message
-    ):
-        isPresent = True
-        notiziaSplit = custom_message.split(
-            "Clicca sul link sottostante per continuare a leggere la notizia"
-        )
-    # Genero il file audio contenente la frase costruita precedentemente
-    if isPresent and notiziaSplit.count > 0:
-        tts = gTTS(notiziaSplit[0], lang="it")
-    else:
-        tts = gTTS(custom_message, lang="it")
+    tts = gTTS(custom_message, lang="it")
     # Salvo il file audio con il nome del membro associato
     tts.save(f"audio_{another_text_message}.mp3")
     print(f"Message/command received by channel: {fromChannel}", flush=True)
@@ -85,7 +71,7 @@ async def make_audio(botDiscord, member, channelKey):
         frasedeffetto = frasi.frase_random(member.name)
         if str(member.id) == id_users["burzum"]:
             custom_message = f"Burzum {frasedeffetto}"
-        elif str(member.id) == id_users["blackpanthera666"]:
+        elif str(member.id) == id_users["moonpantherredxvi"]:
             custom_message = f"Pantera {frasedeffetto}"
         elif str(member.id) == id_users["melissa"]:
             custom_message = f"Melissa {frasedeffetto}"
@@ -93,6 +79,8 @@ async def make_audio(botDiscord, member, channelKey):
             custom_message = f"Alexssìo {frasedeffetto}"
         elif str(member.id) == id_users["carmineg"]:
             custom_message = f"Carmine {frasedeffetto}"
+        elif str(member.id) == id_users["speransia"]:
+            custom_message = f"Milla {frasedeffetto}"
         else:
             custom_message = f"{member.name} {frasedeffetto}"
         await text_to_speech(
@@ -228,45 +216,117 @@ async def enumerate_messages(aiterator):
         index += 1
 
 
+def load_read_news():
+    try:
+        if os.path.exists(READ_NEWS_FILE):
+            with open(READ_NEWS_FILE, "r", encoding="utf-8") as file:
+                return json.load(file)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []  # Se il file non esiste o è vuoto, restituisci un array vuoto
+
+
+def save_read_news(news_url):
+    with open(READ_NEWS_FILE, "w", encoding="utf-8") as file:
+        json.dump(news_url, file, ensure_ascii=False, indent=4)
+        print(f"News saved: {news_url}", flush=True)
+
+
+async def save_news_and_speech(
+    botDiscord,
+    interaction: discord.Interaction,
+    message,
+    index,
+    channel_news,
+):
+    news = {"userId": interaction.user.id, "news": message.content}
+    data = load_read_news()
+    data.append(news)
+    save_read_news(data)
+    await text_to_speech(
+        botDiscord,
+        message.content,
+        f"news_by_channel_{channel_news.id}_{index}",
+        interaction.channel.id,
+    )
+
+
+async def process_news(
+    botDiscord, interaction: discord.Interaction, message, index, channel_news
+):
+    patternUrl = r"http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+"
+    patternAttachedImage = r"^~media\/.*\.(jpg|png|jpeg|gif|bmp|tiff|webp)$"
+    message.content = re.sub(patternUrl, "", message.content)
+    message.content = re.sub(patternAttachedImage, "", message.content)
+    user_founded = any(
+        entry["userId"] == interaction.user.id for entry in load_read_news()
+    )
+    news_founded = any(entry["news"] == message.content for entry in load_read_news())
+    if not (user_founded) or not (news_founded):
+        await save_news_and_speech(
+            botDiscord, interaction, message, index, channel_news
+        )
+        return True
+    return False
+
+
+async def process_free_videogames(message):
+    name_videogame = ""
+    patternVideogame = r"^(.*?)\sfree from"
+    patternGog = r"^(.*?)\sfree from GOG.com"
+    patternSteam = r"^(.*?)\sfree in the Steam store"
+    patternEpic = r"^(.*?)\sfrom Epic Games store"
+    matchNameVideogame = re.search(patternVideogame, message)
+    matchGog = re.search(patternGog, message)
+    matchSteam = re.search(patternSteam, message)
+    matchEpic = re.search(patternEpic, message)
+    if matchNameVideogame:
+        name_videogame = matchNameVideogame.group(1)
+    if matchSteam:
+        isFromSteam = matchSteam.group(1)
+        return f"{name_videogame} e' disponibile su Steam"
+    if matchGog:
+        isFromGog = matchGog.group(1)
+        return f"{name_videogame} e' disponibile sull app di GOG.com"
+    if matchEpic:
+        isFromEpic = matchEpic.group(1)
+        return f"{name_videogame} e' disponibile sullo store di Epic"
+
+
 async def leggi_notizie(
     botDiscord, interaction: discord.Interaction, countnews, channel_news
 ):
-    patternTextAndUrl = r"\nLEGGI LA NOTIZIA -> http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+"
-    patternUrl = r"http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+"
-    messages = []
-    if channel_news != None and channel_news != "":
-        # Ottieni le ultime 'n' notizie da channel_news con la funzione history
-        async for index, message in enumerate_messages(
-            channel_news.history(limit=countnews)
-        ):
-            message.content = re.sub(patternTextAndUrl, "", message.content)
-            message.content = re.sub(patternUrl, "", message.content)
-            messages.append(message.content)
-            await text_to_speech(
-                botDiscord,
-                message.content,
-                f"news_by_channel_{channel_news.id}_{index}",
-                interaction.channel.id,
+    if channel_news is not None and channel_news != "":
+        news_count = 0  # Contatore news
+        index = 0
+        async for message in channel_news.history(limit=100):
+            if news_count >= countnews:
+                break  # Interrompi se raggiungi il numero richiesto di notizie
+
+            processed = await process_news(
+                botDiscord, interaction, message, index, channel_news
             )
-        print(f"Notizie: {messages}", flush=True)
+            if processed:
+                news_count += 1
+            index += 1
 
 
-async def leggi_giochi_gratis(
-    botDiscord, interaction: discord.Interaction, countnews, channel_news
-):
-    messages = []
+async def leggi_giochi_gratis(botDiscord, interaction, channel_news):
     if channel_news != None and channel_news != "":
-        # Ottieni le ultime 'n' notizie da channel_news con la funzione history
-        async for index, message in enumerate_messages(
-            channel_news.history(limit=countnews)
-        ):
-            messages.append(message.content)
-            await text_to_speech(
-                message.content,
-                f"news_by_channel_{channel_news.id}_{index}",
-                interaction.channel.id,
-            )
-        print(f"Notizie: {messages}", flush=True)
+        try:
+            async for message in channel_news.history(limit=1):
+                # print(f"Message: {message.content}", flush=True)
+                messageFormatted = await process_free_videogames(message.content)
+                print(f"Videogioco: {messageFormatted}", flush=True)
+                await text_to_speech(
+                    botDiscord,
+                    messageFormatted,
+                    f"news_by_channel_{channel_news.id}",
+                    interaction.channel.id,
+                )
+                return messageFormatted
+        except Exception as e:
+            print(f"Error: {e}", flush=True)
+            # raise Exception(f"Error: {e}", flush=True)
 
 
 async def join_and_listen(ctx):
