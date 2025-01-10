@@ -21,17 +21,21 @@ Se necessario
 
 
 ### Comandi creati per il bot Er-Vongola per Discord
-- ``` /ping ``` > **It will show the ping latecy of the bot**
-- ``` /info_help ``` > **Mostra aiuto e supporto riguardo al bot**
-- ``` /avvisadarklord ``` > **Manda un messaggio a DarkLord per comunicargli che siamo online...**
-- ``` /barzelletta ``` > **Genera una barzelletta, entra nel canale vocale e la riproduce**
-- ``` /freddura ``` > **Genera una freddura/battuta, entra nel canale vocale e la riproduce**
-- ``` /newstech ``` > **Entra nel canale vocale dove ti trovi e ti legge tot -> 'countnews' notizie riguardo l'ambito della tecnologia**
-- ``` /newsgeneral ``` > **Entra nel canale vocale dove ti trovi e ti legge 'n' notizie riguardo l'ambito generale**
-- ``` /newsvideogames ``` > **Entra nel canale vocale dove ti trovi e ti legge 'n' notizie riguardo l'ambito dei videogames**
-- ``` /suggerimento ``` > **Invia un suggerimento per una nuova funzione**
-- ``` /play_music ``` > **Riproduce audio da YouTube nel canale vocale con un volume di default di 100% o volume impostato**
-- ``` /stop ``` > **Ferma la riproduzione audio e disconnette il bot dal canale vocale**
+- ``` /info``` (mostra le informazioni riguardo al bot)
+- ``` /help``` (mostra aiuto e supporto su come utilizzarlo)
+- ``` /barzelletta``` (genera una barzelletta casuale tramite l'intelligenza artificiale, entra nel server dove ti trovi e te la legge ad alta voce)
+- ``` /freddura``` (genera una freddura casuale tramite l'intelligenza artificiale, entra nel server dove ti trovi e te la legge ad alta voce)
+- ``` /nwt``` (ti legge n notizie ad alta voce prendendole dalla chat testuale ⁠💻news-tech💻 presente nella sezione NOTIZIE DI OGNI TIPO)
+- ``` /nwg``` (ti legge n notizie ad alta voce prendendole dalla chat testuale ⁠📰news-generali📰 presente nella sezione NOTIZIE DI OGNI TIPO)
+- ``` /nwv``` (ti legge n notizie ad alta voce prendendole dalla chat testuale ⁠🕹news-videogames🕹 presente nella sezione NOTIZIE DI OGNI TIPO)
+- ``` /freevideogames```  (ti legge i giochi gratuiti del momento su Epic Games Store e/o Steam prendendole dalla chat testuale ⁠🕹free-videogames🕹 )
+- ``` /suggerimento``` (Permette all'utente di inserire una nuova idea o implementazione per il bot, in sostanza se hai in mente un'idea.. scrivimela! E vedrò cosa posso fare)
+- ``` /pvy``` (Permette di riprodurre un audio o musica da un link di YouTube)
+- ``` /stop``` (Permette di fermare la musica o l'audio in riproduzione dal Bot)
+- ``` /list_audio_commands``` (Mostra la lista dei file audio o comandi vocali disponibili dal Bot)
+- ``` /play_audio_command``` (Riproduce un file audio secondo il suo ID, visualizzabile con il comando sopra citato)
+- ``` /lae``` (In beta test, entra nel canale vocale, ti ascolta e se pronunci determinate parole esegue dei comandi.
+
 <details>
   <summary>Avviso per le persone sensibili a parole o blasfemie</summary>
   
