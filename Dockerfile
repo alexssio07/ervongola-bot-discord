@@ -1,5 +1,5 @@
 # Dockerfile
-FROM python:3.10-slim
+FROM python:3.11-slim-bookworm
 
 WORKDIR /app
 
@@ -19,25 +19,29 @@ COPY scraper.py ./app
 COPY bot-discord.py ./app
 
 # Installa le librerie necessarie
+RUN pip install --upgrade pip setuptools wheel
 RUN apt-get update
+RUN apt-get install -y build-essential libsndfile1
 RUN apt-get install -y ffmpeg
 RUN pip install --upgrade pip
 #RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install setuptools-rust
+# RUN pip install setuptools-rust
 RUN pip install python-dotenv
-RUN pip install yt-dlp
-RUN pip install playwright
-RUN pip install PyNaCl
+RUN pip install nest_asyncio
 RUN pip install gtts 
 RUN pip install ollama
-RUN pip install langchain
-RUN pip install streamlit
-RUN pip install nest_asyncio
-RUN pip install whisper
-RUN pip install SpeechRecognition
-RUN pip install burr
-RUN pip install scrapegraphai
-RUN pip install imageio
+# RUN pip install openai-whisper
+RUN pip install yt-dlp
+# RUN pip install SpeechRecognition
+RUN pip install requests
+RUN pip install beautifulsoup4
+#RUN pip install playwright
+RUN pip install PyNaCl
+# RUN pip install langchain
+# RUN pip install streamlit
+# RUN pip install burr
+# RUN pip install scrapegraphai
+# RUN pip install imageio
 RUN pip install discord.py 
 
 # Installa ffmpeg

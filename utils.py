@@ -3,17 +3,27 @@ import discord
 import asyncio
 from gtts import gTTS
 import json
+
+# import whisper
 import frasiconteggio as frasiconteggio
 import os
 import uuid
 import yt_dlp as youtube_dl
 import voice_manager as vc
-import speech_recognition as sr
+
+# import speech_recognition as sr
 
 audio_queue = asyncio.Queue()  # Coda per le richieste audio
 stop_event = asyncio.Event()  # Evento per fermare le operazioni asincrone
 
 # model = whisper.load_model("small")
+
+# Lista di parole chiave e comandi associati
+keyword_commands = {
+    "vongola": "disconnect",
+    "ciao bot": "greet",
+    "riproduci": "play_audio",
+}
 
 chat_vocale_privato = "707198443751211140"
 chat_vocale_privato2 = "707514058990944256"
@@ -30,8 +40,9 @@ id_users = {
     "speransia": "262262693103140864",
 }
 READ_NEWS_FILE = "json/read_news.json"
+AUDIO_FOLDER = "./audio_files/"
 
-recognizer = sr.Recognizer()
+# recognizer = sr.Recognizer()
 
 
 async def text_to_speech(botDiscord, custom_message, another_text_message, channelId):
@@ -81,8 +92,10 @@ async def make_audio(botDiscord, member, channelKey):
             custom_message = f"Carmine {frasedeffetto}"
         elif str(member.id) == id_users["speransia"]:
             custom_message = f"Milla {frasedeffetto}"
-        else:
-            custom_message = f"{member.name} {frasedeffetto}"
+        elif str(member.id) == id_users["dark_lord"]:
+            custom_message = f"Dark Lord {frasedeffetto}"
+        elif str(member.id) == id_users["lykanos"]:
+            custom_message = f"Lykanos {frasedeffetto}"
         await text_to_speech(
             botDiscord,
             custom_message,
@@ -91,7 +104,7 @@ async def make_audio(botDiscord, member, channelKey):
         )
 
 
-async def play_music(interaction: discord.Interaction, url: str, volume: int):
+async def play_youtube_video(interaction: discord.Interaction, url: str, volume: int):
     loop = asyncio.get_event_loop()
     user = interaction.user
     voice_state = user.voice
@@ -119,7 +132,7 @@ async def play_music(interaction: discord.Interaction, url: str, volume: int):
             print(f"Download completato: {d['filename']}")
             asyncio.run_coroutine_threadsafe(
                 interaction.response.send_message(
-                    f"Download completato: {d['filename']}"
+                    f"Download completato: {d['filename']}", ephemeral=True
                 ),
                 loop,
             )
@@ -133,7 +146,7 @@ async def play_music(interaction: discord.Interaction, url: str, volume: int):
             {
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "mp3",
-                "preferredquality": "192",
+                "preferredquality": "320",
             }
         ],
     }
@@ -329,39 +342,65 @@ async def leggi_giochi_gratis(botDiscord, interaction, channel_news):
             # raise Exception(f"Error: {e}", flush=True)
 
 
-async def join_and_listen(ctx):
-    voice_channel = ctx.author.voice.channel
-    if voice_channel is not None:
-        vc = await voice_channel.connect()
-        # TO DO >> DA CORREGERE
-        # await listen_audio(vc)
+# async def join_and_listen(ctx):
+#     voice_channel = ctx.author.voice.channel
+#     if voice_channel is not None:
+#         vc = await voice_channel.connect()
+#         await listen_audio(vc)
+
+
+# # Funzione per generare la lista dei file audio disponibili
+# def get_command_audio_files():
+#     audio_files = {}
+#     for i, file in enumerate(os.listdir(AUDIO_FOLDER)):
+#         if file.endswith((".mp3", ".wav")):
+#             audio_files[i + 1] = file
+#     return audio_files
 
 
 # async def listen_audio(vc):
-#     while not stop_event.is_set():
-#         # Registra l'audio direttamente dal canale vocale
-#         audio_source = discord.PCMAudio(
-#             "mic"
-#         )  # Questo richiede un microfono collegato al bot
-#         vc.play(PCMVolumeTransformer(audio_source))
+#     """
+#     Registra audio dal canale vocale e lo trascrive usando Whisper.
+#     """
+# TO DO DA FARE
+#     try:
+#         print("In ascolto dell'audio...")
+#         # Percorso del file audio temporaneo
+#         audio_file = "recorded_audio.wav"
 
-#         # Usa Whisper per trascrivere l'audio
-#         with sr.AudioFile(
-#             "mic"
-#         ) as source:  # Il bot deve avere accesso a un microfono per catturare l'audio
-#             audio = recognizer.record(source)
-#             # TO DO FIXA IL MODELLO
-#             text = recognizer.recognize_whisper(model)
+#         # Registra l'audio dal canale vocale
+#         ffmpeg_command = (
+#             f"ffmpeg -y -i {vc.source.stream.url} -ar 16000 -ac 1 -f wav {audio_file}"
+#         )
+#         process = await asyncio.create_subprocess_shell(ffmpeg_command)
+#         await process.communicate()
 
-#         # print(f"Transcription: {text}")
+#         # Trascrivi il file audio con Whisper
+#         print("Inizio trascrizione...")
+#         transcription = model.transcribe(audio_file)
+#         text = transcription["text"]
+#         print(f"Trascrizione: {text}")
 
-#         # Verifica se la parola chiave è stata detta
-#         if "vongola" in text.lower():
-#             print("Parola chiave rilevata! Eseguo il comando...")
-#             await trigger_event(vc)
+#         # Analizza la trascrizione per eventuali parole chiave
+#         keywords = {"vongola": trigger_event}
+#         for word in keywords:
+#             if word in text.lower():
+#                 print(f"Parola chiave rilevata: {word}")
+#                 await keywords[word](vc)
+#                 break
+
+#     except Exception as e:
+#         print(f"Errore durante l'ascolto: {e}")
 
 
-async def trigger_event(vc):
-    # Esegui un'azione quando la parola chiave è rilevata
-    await vc.disconnect()
-    print("Azione eseguita!")
+async def trigger_event(vc, command):
+    # Esegui un'azione in base al comando
+    if command == "vongola off" or command == "disconnetti":
+        await vc.disconnect()
+        print("Disconnesso dal canale vocale.")
+    elif command == "ciao":
+        print("Ciao! Sono Er-Vongola, il tuo assistente vocale.")
+    elif command == "riproduci" or command == "metti":
+        print("Riproduco un file audio (da implementare).")
+    else:
+        print(f"Comando non riconosciuto: {command}")

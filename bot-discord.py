@@ -1,5 +1,8 @@
+import asyncio
+import datetime
 import discord
 from discord.ext import commands
+from discord.ext.commands import Context
 from discord import ActivityType, CustomActivity, Game, Streaming, Spotify
 from discord.ext.tasks import loop
 from dotenv import load_dotenv
@@ -8,6 +11,7 @@ from ollama import Client
 import ollama
 import json
 import nest_asyncio
+import requests
 import generatoreblasfemie
 import utils as ut
 
@@ -17,9 +21,12 @@ nest_asyncio.apply()
 load_dotenv()
 
 # Configurazioni
-discord_token = os.getenv("DISCORD_TOKEN")
-key_api_personal_ai = os.getenv("KEY_API_PERSONAL_AI")
-key_jwt_personal_ai = os.getenv("KEY_JWT_PERSONAL_AI")
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+KEY_API_PERSONAL_AI = os.getenv("KEY_API_PERSONAL_AI")
+KEY_JWT_PERSONAL_AI = os.getenv("KEY_JWT_PERSONAL_AI")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+TELEGRAM_GROUP_CHAT_ID = os.getenv("TELEGRAM_GROUP_CHAT_ID")
 
 chats_database = {
     "chat_vocale_privato": "707198443751211140",
@@ -67,9 +74,7 @@ id_roles = {
 id_server_discord = "679423743017091083"
 # id_bot_ervongola = "1205585120187261000"
 
-messageTheyAre = (
-    "Lykanos e Alexssio sono online, se vuoi vai a fargli compagnia... Stronzo."
-)
+messagePersonIsHere = "è online, se vuoi vai a fargli compagnia... Stronzo."
 isOnChannel_users = {
     f"isOnChannel{names_users['alexssio']}": False,
     f"isOnChannel{names_users['lykanos']}": False,
@@ -92,6 +97,11 @@ keysQuestionRoma = [
     "biglietto",
 ]
 users_online = []
+audio_queue = []
+last_notification = {}
+
+# Soglia temporale: 6 ore prima di poter inviare nuovamente la notifica per lo stesso utente
+NOTIFICATION_THRESHOLD = datetime.timedelta(hours=6)
 
 clientAI = Client(host="http://host.docker.internal:11434/api/generate -d")
 
@@ -100,6 +110,7 @@ intents = discord.Intents.all()
 intents.message_content = True
 intents.guilds = True
 intents.members = True
+intents.presences = True
 intents.voice_states = True
 botDiscord = commands.Bot(command_prefix="!", intents=intents)
 
@@ -111,13 +122,13 @@ async def on_ready():
     Questo metodo viene invocato quando il bot Discord viene avviato e viene inizializzato
     """
     botDiscord.loop.create_task(ut.audio_player())
-    print(f"Logged in as {botDiscord.user.name} ({botDiscord.user.id})", flush=True)
+    print(f"Logged in as {botDiscord.user.name} - Ready", flush=True)
     check_online.start()
     try:
         await botDiscord.tree.sync()
         # for guild in botDiscord.guilds:
         #     print(f"Nome del Server: {guild.name}, ID del Server: {guild.id}")
-        print("Synced")
+        print(f"Commands synced for {botDiscord.user.name}")
     except discord.Forbidden:
         print("Unexpected forbidden from application scope.")
 
@@ -128,18 +139,14 @@ async def check_online():
     """
     Questo metodo verrà chiamato ogni 70 minuti in loop fino a quando il bot non viene interrotto
     """
-
-    dark_Lord = await botDiscord.fetch_user(id_users["dark_lord"])
-    alexssio = await botDiscord.fetch_user(id_users["alexssio"])
-    if (
-        isOnChannel_users[f"isOnChannel{names_users['alexssio']}"]
-        and isOnChannel_users[f"isOnChannel{names_users['lykanos']}"]
-        and isOn_Users[f"isOn{names_users['alexssio']}"]
-        and isOn_Users[f"isOn{names_users['lykanos']}"]
-        and not isOn_Users[f"isOn{names_users['dark_lord']}"]
-    ):
-        await dark_Lord.send(messageTheyAre)
-        await alexssio.send(messageTheyAre)
+    # if id_users["alexssio"] in last_notification:
+    #     await sendmessage_alexssio()
+    # if (
+    #     isOnChannel_users[f"isOnChannel{names_users['lykanos']}"]
+    #     and isOn_Users[f"isOn{names_users['lykanos']}"]
+    #     and not isOn_Users[f"isOn{names_users['dark_lord']}"]
+    # ):
+    #     await sendmessage_lykanos()
 
     guild = botDiscord.get_guild(int(id_server_discord))
     if guild is None:
@@ -175,7 +182,65 @@ async def check_online():
 
     print("Controllo delle attività completato.")
 
-    # print(f"{len(users_online)} utenti online: {users_online}", flush=True)
+    print(f"{len(users_online)} utenti online: {users_online}", flush=True)
+
+
+async def check_and_send_message(member, before, after):
+    if before.channel is None and after.channel is not None:
+        if str(after.channel.id) in (
+            chats_database["chat_vocale_privato"],
+            chats_database["chat_vocale_privato2"],
+            chats_database["chat_vocale_privato3"],
+        ):
+            now = datetime.datetime.now()
+            send_notification = False
+
+            if member.id not in last_notification and member.name in (
+                names_users["alexssio"],
+                names_users["lykanos"],
+                names_users["dark_lord"],
+            ):
+                send_notification = True
+            else:
+                last_time = last_notification.get(member.id)
+                if last_time is None:
+                    last_notification[member.id] = now
+                elif now - last_time >= NOTIFICATION_THRESHOLD:
+                    send_notification = True
+
+            if send_notification:
+                last_notification[member.id] = now
+                # @BradipinoMetallaro64551
+                # @Lykanos94
+                # @Alexssio
+                nomeUtente = [
+                    value for key, value in names_users.items() if value == member.name
+                ]
+                text = f"{nomeUtente} è entrato nel canale vocale {after.channel.name}"
+                urlAPITelegram = (
+                    f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+                )
+                data_chat_private = {
+                    "chat_id": TELEGRAM_CHAT_ID,
+                    "text": text,
+                }
+                data_chat_group = {
+                    "chat_id": TELEGRAM_GROUP_CHAT_ID,
+                    "text": text,
+                }
+                try:
+                    response = requests.post(urlAPITelegram, data=data_chat_private)
+                    responseGroup = requests.post(urlAPITelegram, data=data_chat_group)
+                    if response.status_code != 200:
+                        print("Error sending message to Telegram", response.text)
+                    if responseGroup.status_code != 200:
+                        print("Error sending message to Telegram", responseGroup.text)
+                except Exception as e:
+                    print("Error sending message to Telegram", e)
+            elif member.name != "BOT-ErVongola":
+                print(
+                    f"Notifica già inviata a {member.name} in questo intervallo di tempo."
+                )
 
 
 @botDiscord.event
@@ -187,6 +252,7 @@ async def on_voice_state_update(member, before, after):
         f"Canale prima: {before.channel}, Canale dopo: {after.channel}, Utente: {member.name}",
         flush=True,
     )
+    await check_and_send_message(member, before, after)
     if member.name in names_users.values():
         if before.channel and before.channel.id in (
             int(chats_database["chat_afk"]),
@@ -246,6 +312,92 @@ def sync_user_status(member, online=True):
             isOn_Users[f"isOn{user_key}"] = False
             if username in users_online:
                 users_online.remove(username)
+
+
+# Comando per mostrare la lista dei file audio
+@botDiscord.tree.command(
+    name="list_audio_commands",
+    description="Mostra la lista dei comandi vocali disponibili",
+)
+async def list_audio(interaction: discord.Interaction):
+    audio_files = ut.get_command_audio_files()
+    if not audio_files:
+        await interaction.response.send_message(
+            "Nessun file audio disponibile.", ephemeral=True
+        )
+        return
+
+    audio_list = "\n".join([f"{id}: {name}" for id, name in audio_files.items()])
+    await interaction.response.send_message(
+        f"Ecco la lista dei file audio:\n```\n{audio_list}\n``` Scrivi /play_audio_command e il numero dell'audio per riprodurlo.",
+    )
+
+
+# Funzione per gestire la riproduzione della coda
+async def play_queue(vc, interaction: discord.Interaction):
+    global audio_queue
+    while audio_queue:
+        # Ottieni il prossimo file dalla coda
+        current_audio = audio_queue.pop(0)
+        audio_path = os.path.join(ut.AUDIO_FOLDER, current_audio)
+        vc.play(
+            discord.FFmpegPCMAudio(source=audio_path),
+            after=lambda e: print(f"Riproduzione terminata: {e}"),
+        )
+
+        await interaction.followup.send(
+            f"Sto riproducendo: `{current_audio}`", ephemeral=True
+        )
+
+
+# Comando per riprodurre un file audio dato il suo ID
+@botDiscord.tree.command(
+    name="play_audio_command",
+    description="Riproduce un file audio secondo il suo ID, visualizzabile con `/list_audio_commands`",
+)
+async def play_audio(interaction: discord.Interaction, audio_id: int):
+    global audio_queue
+    audio_files = ut.get_command_audio_files()
+
+    if audio_id not in audio_files:
+        await interaction.response.send_message(
+            "ID audio non valido. Usa `!list_audio_commands` per vedere gli ID disponibili.",
+            ephemeral=True,
+        )
+        return
+
+    # Controlla se l'utente è in un canale vocale
+    if not interaction.user.voice or not interaction.user.voice.channel:
+        await interaction.response.send_message(
+            "Devi essere in un canale vocale per usare questo comando.", ephemeral=True
+        )
+        return
+
+    # Risposta immediata all'utente
+    await interaction.response.send_message(
+        "Elaborazione del comando... Attendi un momento.", ephemeral=True
+    )
+    # Aggiungi il file alla coda
+    audio_queue.append(audio_files[audio_id])
+
+    # Connettiti al canale vocale se non sei già connesso
+    voice_channel = interaction.user.voice.channel
+    vc = discord.utils.get(botDiscord.voice_clients, guild=interaction.guild)
+
+    if not vc:
+        vc = await voice_channel.connect()
+
+        # Avvia la riproduzione della coda
+        await play_queue(vc, interaction)
+    elif not vc.is_playing():
+        # Se il bot è già nel canale ma inattivo, avvia la coda
+        await play_queue(vc, interaction)
+    elif vc.is_playing():
+        # Notifica che è stato aggiunto alla coda
+        await interaction.followup.send(
+            f"Aggiunto alla coda: `{audio_files[audio_id]}`. Verrà riprodotto a breve.",
+            ephemeral=True,
+        )
 
 
 # Questo metodo cattura i messaggi testuali
@@ -315,28 +467,104 @@ async def info_help(interaction: discord.Interaction):
 
 
 @botDiscord.tree.command(
-    name="avvisadarklord",
+    name="avvisa_darklord",
     description="Manda un messaggio a DarkLord per comunicargli che siamo online... Comando PRIVATO",
 )
 async def sendmessage_darklord(interaction: discord.Interaction):
     """Manda un messaggio a DarkLord per comunicargli che siamo online..."""
-    member = interaction.user
-
-    has_role = any(
-        role.id == int(id_roles["corpo_di_ricerca"])
-        or role.id == int(id_roles["supremo"])
-        for role in member.roles
-    )
-    # Controlla se l'utente ha il ruolo richiesto per inviare il messaggio
-    if has_role:
-        dark_Lord = await botDiscord.fetch_user(id_users["dark_lord"])
-        alexssio = await botDiscord.fetch_user(id_users["alexssio"])
-        await dark_Lord.send(messageTheyAre)
-        await alexssio.send(messageTheyAre)
-        await interaction.response.send_message("Messaggio inviato!")
+    member_interaction = interaction.user
+    dark_Lord = await botDiscord.fetch_user(id_users["dark_lord"])
+    if member_interaction.roles != None:
+        has_role = any(
+            role.id == int(id_roles["corpo_di_ricerca"])
+            or role.id == int(id_roles["supremo"])
+            for role in member_interaction.roles
+        )
+        # Controlla se l'utente ha il ruolo richiesto per inviare il messaggio
+        if has_role:
+            print(f"Utente {member_interaction.name} ha il ruolo richiesto")
+            if interaction.user.name.lower() == "alexssio":
+                await dark_Lord.send(f"{member_interaction.name} {messagePersonIsHere}")
+                await interaction.response.send_message(
+                    "Messaggio inviato!", ephemeral=True
+                )
+            if interaction.user.name.lower() == "lykanos94":
+                await dark_Lord.send(f"{member_interaction.name} {messagePersonIsHere}")
+                await interaction.response.send_message(
+                    "Messaggio inviato!", ephemeral=True
+                )
+        else:
+            await interaction.response.send_message(
+                "Non hai il ruolo richiesto per inviare il messaggio",
+                ephemeral=True,
+            )
     else:
         await interaction.response.send_message(
-            "Non hai il ruolo richiesto per inviare il messaggio"
+            "Devi essere connesso al server per poter inviare il messaggio",
+            ephemeral=True,
+        )
+
+
+@botDiscord.tree.command(
+    name="avvisa_alexssio",
+    description="Manda un messaggio ad Alexssio per comunicargli che DarkLord è online... Comando PRIVATO",
+)
+async def sendmessage_alexssio(interaction: discord.Interaction):
+    """Manda un messaggio ad Alexssio e Lykanos per comunicargli che DarkLord è online..."""
+    interacted_member = interaction.user
+    alexssio = await botDiscord.fetch_user(id_users["alexssio"])
+    if interacted_member.roles != None:
+        has_role = any(
+            role.id == int(id_roles["corpo_di_ricerca"])
+            or role.id == int(id_roles["supremo"])
+            for role in interacted_member.roles
+        )
+        # Controlla se l'utente ha il ruolo richiesto per inviare il messaggio
+
+        if has_role:
+            await alexssio.send(f"{interacted_member.name} {messagePersonIsHere}")
+            await interaction.response.send_message(
+                "Messaggio inviato!", ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                "Non hai il ruolo richiesto per inviare il messaggio", ephemeral=True
+            )
+    else:
+        await interaction.response.send_message(
+            "Devi essere connesso al server per poter inviare il messaggio",
+            ephemeral=True,
+        )
+
+
+@botDiscord.tree.command(
+    name="avvisa_lykanos",
+    description="Manda un messaggio ad Lykanos per comunicargli che DarkLord è online... Comando PRIVATO",
+)
+async def sendmessage_lykanos(interaction: discord.Interaction):
+    """Manda un messaggio a Lykanos per comunicargli che DarkLord è online..."""
+    interacted_member = interaction.user
+    lykanos = await botDiscord.fetch_user(id_users["lykanos"])
+    if interacted_member.roles != None:
+        has_role = any(
+            role.id == int(id_roles["corpo_di_ricerca"])
+            or role.id == int(id_roles["supremo"])
+            for role in interacted_member.roles
+        )
+        # Controlla se l'utente ha il ruolo richiesto per inviare il messaggio
+        if has_role:
+            await lykanos.send(f"{interacted_member.name} {messagePersonIsHere}")
+            await interaction.response.send_message(
+                "Messaggio inviato!", ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                "Non hai il ruolo richiesto per inviare il messaggio", ephemeral=True
+            )
+    else:
+        await interaction.response.send_message(
+            "Devi essere connesso al server per poter inviare il messaggio",
+            ephemeral=True,
         )
 
 
@@ -416,7 +644,7 @@ async def barzeletta(interaction: discord.Interaction):
             )
     except ollama.ResponseError as e:
         print(e, flush=True)
-        await messageTheyAre.reply(
+        await interaction.response.send_message(
             f"Si è verificato un errore durante l'elaborazione della richiesta. {e}"
         )
 
@@ -457,13 +685,10 @@ async def freddura(interaction: discord.Interaction):
             )
     except ollama.ResponseError as e:
         print(e, flush=True)
-        await messageTheyAre.reply(
-            f"Si è verificato un errore durante l'elaborazione della richiesta. {e}"
-        )
 
 
 @botDiscord.tree.command(
-    name="newstech",
+    name="read_news_tech",
     description="Entra nel canale vocale dove ti trovi e ti legge 'n' notizie riguardo l'ambito della tecnologia",
 )
 async def newstech(interaction: discord.Interaction, countnews: str):
@@ -491,7 +716,7 @@ async def newstech(interaction: discord.Interaction, countnews: str):
 
 
 @botDiscord.tree.command(
-    name="newsgeneral",
+    name="read_news_general",
     description="Entra nel canale vocale dove ti trovi e ti legge 'n' notizie riguardo l'ambito generale",
 )
 async def newsgeneral(interaction: discord.Interaction, countnews: str):
@@ -519,7 +744,7 @@ async def newsgeneral(interaction: discord.Interaction, countnews: str):
 
 
 @botDiscord.tree.command(
-    name="newsvideogames",
+    name="read_news_videogames",
     description="Entra nel canale vocale dove ti trovi e ti legge 'n' notizie riguardo l'ambito dei videogames",
 )
 async def newsvideogames(interaction: discord.Interaction, countnews: str):
@@ -589,13 +814,15 @@ async def suggerimento(interaction: discord.Interaction, testo: str):
 
 
 @botDiscord.tree.command(
-    name="playmusic",
+    name="play_youtube_video",
     description="Riproduce audio da YouTube nel canale vocale con un volume di default di 100% o volume impostato",
 )
-async def play_music(interaction: discord.Interaction, url: str, volume: int = 100):
+async def play_youtube_video(
+    interaction: discord.Interaction, url: str, volume: int = 100
+):
     """Riproduce audio da YouTube nel canale vocale con un volume di default di 100% o volume impostato"""
 
-    await ut.play_music(interaction, url, volume)
+    await ut.play_youtube_video(interaction, url, volume)
 
 
 @botDiscord.tree.command(
@@ -609,13 +836,13 @@ async def stop(interaction: discord.Interaction):
 
 
 @botDiscord.tree.command(
-    name="joinandlisten",
-    description="IN BETA TEST >> Unisce il bot al canale vocale e inizia a leggere audio",
+    name="lae",
+    description="IN BETA TEST > Il bot inizia ad ascoltarti ed esegue specifici comandi, POTREBBE NON FUNZIONARE.",
 )
 async def joinandlisten(interaction: discord.Interaction):
-    """Unisce il bot al canale vocale e inizia a leggere audio"""
-
-    await ut.join_and_listen(interaction)
+    """Il bot si unisce al canale ed inizia ad ascoltarti eseguendo specifici comandi"""
+    # TO DO DA FARE
+    # await ut.join_and_listen(interaction)
 
 
 @check_online.before_loop
@@ -626,4 +853,4 @@ async def before_monitor_members():
 
 # Esegui il bot Discord e inizializza il monitoraggio degli utenti
 users_online = []
-botDiscord.run(discord_token)
+botDiscord.run(DISCORD_TOKEN)
