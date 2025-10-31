@@ -1,53 +1,27 @@
-# Dockerfile
-FROM python:3.11-slim-bookworm
+# Usa un'immagine Python compatibile con ARM
+FROM arm64v8/python:3.11-slim
 
+# Imposta la directory di lavoro
 WORKDIR /app
 
-# Copia solo requirements.txt per usare la cache
+# Copia il file requirements per installazioni efficienti
 COPY requirements.txt ./
-# RUN pip install --no-cache-dir -r requirements.txt
 
-
-# Copia il tuo script Python nella directory di lavoro
-COPY json/ ./app/json/
-COPY . /app
-COPY voice_manager.py ./app
-COPY utils.py ./app
-COPY frasiconteggio.py ./app
-COPY generatoreblasfemie.py ./app
-COPY scraper.py ./app
-COPY bot-discord.py ./app
-
-# Installa le librerie necessarie
-RUN pip install --upgrade pip setuptools wheel
-RUN apt-get update
-RUN apt-get install -y build-essential libsndfile1
-RUN apt-get install -y ffmpeg
+# Aggiorna i pacchetti e installa le dipendenze di sistema necessarie
 RUN pip install --upgrade pip
-#RUN pip install --no-cache-dir -r requirements.txt
-# RUN pip install setuptools-rust
-RUN pip install python-dotenv
-RUN pip install nest_asyncio
-RUN pip install gtts 
-RUN pip install ollama
-# RUN pip install openai-whisper
-RUN pip install yt-dlp
-# RUN pip install SpeechRecognition
-RUN pip install requests
-RUN pip install beautifulsoup4
-#RUN pip install playwright
-RUN pip install PyNaCl
-# RUN pip install langchain
-# RUN pip install streamlit
-# RUN pip install burr
-# RUN pip install scrapegraphai
-# RUN pip install imageio
-RUN pip install discord.py 
 
-# Installa ffmpeg
-# RUN apt-get update && \
-#     apt-get install -y ffmpeg && \
-#     apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg libasound2 libnss3 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxi6 libxtst6 \
+    libcups2 libdrm2 libgbm1 libpango-1.0-0 libpangocairo-1.0-0 libatspi2.0-0 libjpeg62-turbo libopus0 libxrandr2 libatk1.0-0 libatk-bridge2.0-0 && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Installa le librerie Python
+RUN pip install --no-cache-dir -r requirements.txt
+
+
+# Copia i file necessari nella directory di lavoro
+COPY json/ ./json/
+COPY . /app
 
 # Comando di default quando il container viene avviato
-CMD ["python", "/app/bot-discord.py"]
+CMD ["python", "bot-discord.py"]
