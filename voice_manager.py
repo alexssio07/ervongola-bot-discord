@@ -1,114 +1,110 @@
-import asyncio
-import datetime
-import logging
 import discord
 from typing import Optional
+import discord.ext.voice_recv as voice_recv
+import logging
+import asyncio
 
+# Lock per prevenire tentativi di connessione simultanei
+voice_lock = asyncio.Lock()
+
+# Global variable to track the active voice client
 current_vc: Optional[discord.VoiceClient] = None
-_lock = asyncio.Lock()  # unico lock globale per serializzare operazioni voice
-MAX_RETRIES = 5
-BASE_DELAY = 2.0
 
 
-async def connect_to_channel(
-    channel: discord.VoiceChannel,
-    botDiscord: discord.Client,
-    interaction: discord.Interaction,
-) -> Optional[discord.VoiceClient]:
-    """
-    Connetti il bot al canale vocale. Se è già connesso a un altro canale,
-    lo sposta sul nuovo. Restituisce il VoiceClient attivo.
-    """
-    global current_vc
-    actual_datetime_string = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    async with _lock:
-        # Se già connesso allo stesso canale → ritorna
-        # print(
-        #     f"current_vc: {current_vc} and current_vc.is_connected(): {current_vc and current_vc.is_connected()}"
-        # )
-        if (
-            current_vc
-            and current_vc.is_connected()
-            or (current_vc and current_vc.channel.id == channel.id)
-        ):
-            logging.info(
-                f"[{actual_datetime_string}] [VM] Già connesso a {channel.name}"
-            )
-            return current_vc
+async def connect_to_channel(channel: discord.VoiceChannel):
+    try:
+        await asyncio.wait_for(voice_lock.acquire(), timeout=30)
+    except asyncio.TimeoutError:
+        logging.error("[VOICE] Timeout voice_lock (30s) — deadlock! Abort.")
+        raise RuntimeError("voice_lock deadlock timeout")
 
-        # Se connesso a un altro canale → disconnetti prima
-        if current_vc and current_vc.is_connected():
+    try:
+        logging.info(f"[VOICE] Tentativo connessione: {channel.name} (ID: {channel.id})")
+
+        # Pulizia client locale esistente
+        existing_vc = channel.guild.voice_client
+        if existing_vc is not None:
+            logging.info(f"[VOICE] Client esistente trovato. Disconnessione...")
             try:
-                logging.info(
-                    f"[{actual_datetime_string}] [VM] Disconnessione da {current_vc.channel.name} prima di riconnettere..."
-                )
-                await current_vc.disconnect(force=True)
-                await asyncio.sleep(1.5)
-            except Exception as e:
-                logging.warning(f"[VM] Errore durante la disconnessione VC: {e}")
-            current_vc = None
+                await existing_vc.disconnect(force=True)
+            except Exception:
+                pass
+            await asyncio.sleep(1.0)
 
-        # Tenta connessione con retry/backoff
-        print(f"current_vc: {current_vc}")
-        attempt = 0
-        while attempt < MAX_RETRIES:
-            try:
-                await asyncio.sleep(BASE_DELAY * (attempt + 1))
-                current_vc = await channel.connect(reconnect=False)
-                logging.info(
-                    f"[{actual_datetime_string}] [VM] Connesso a {channel.name}"
-                )
-                return current_vc
-            except Exception as e:
-                code = getattr(e, "code", None)
-                logging.warning(
-                    f"[VM] Tentativo {attempt+1} fallito: {e} (code={code})"
-                )
-
-                # Gestione 4006 → resetta e ritenta
-                if "4006" in str(e) or code == 4006:
-                    logging.warning(
-                        "[VM] Errore 4006 rilevato, reset connessione vocale"
-                    )
-                    try:
-                        if current_vc:
-                            await current_vc.disconnect(force=True)
-                    except Exception:
-                        pass
-                    current_vc = None
-
-                attempt += 1
-                await asyncio.sleep(BASE_DELAY * (attempt + 1) * 2)
-
-        logging.error(
-            f"[VM] Impossibile connettersi al canale {channel.name} dopo {MAX_RETRIES} tentativi."
+        # Connessione
+        logging.info("[VOICE] Avvio handshake (timeout=60s, self_deaf=True)...")
+        new_vc = await channel.connect(
+            cls=voice_recv.VoiceRecvClient,
+            timeout=60.0,
+            reconnect=False,
+            self_deaf=False,   # False: il bot può sentire E parlare
+            self_mute=False,   # False: microfono attivo per VoiceRecvClient
         )
-        return None
+        logging.info("[VOICE] Handshake completato con successo.")
+        global current_vc
+        current_vc = new_vc
+        return new_vc
 
-
-async def disconnect_current_vc():
-    """
-    Disconnette completamente il VC corrente, se esiste.
-    """
-    global current_vc
-    actual_datetime_string = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    async with _lock:
-        if not current_vc:
-            return
+    except discord.errors.ConnectionClosed as e:
+        logging.error(
+            f"[VOICE] WebSocket chiuso — codice: {e.code}, motivo: {e.reason}"
+        )
+        current_vc = None
         try:
-            if current_vc.is_connected():
-                await current_vc.disconnect(force=True)
-                await asyncio.sleep(1)
-                logging.info(
-                    f"[{actual_datetime_string}] [VM] Disconnesso correttamente dal canale vocale"
+            vc_to_kill = channel.guild.voice_client
+            if vc_to_kill:
+                await vc_to_kill.disconnect(force=True)
+        except Exception:
+            pass
+        raise
+
+    except Exception as e:
+        logging.error(f"[VOICE] Errore durante handshake: {e}")
+        current_vc = None
+        raise
+
+    finally:
+        voice_lock.release()
+        logging.debug("[VOICE_LOCK] Rilasciato (connect).")
+
+
+async def disconnect(guild: Optional[discord.Guild] = None):
+    global current_vc
+
+    try:
+        await asyncio.wait_for(voice_lock.acquire(), timeout=15)
+    except asyncio.TimeoutError:
+        logging.warning("[VOICE] Timeout voice_lock durante disconnect (15s) — skip.")
+        return
+
+    try:
+        vc = None
+        if guild is not None:
+            vc = guild.voice_client
+        elif current_vc is not None:
+            vc = current_vc
+            guild = current_vc.guild
+        else:
+            logging.warning("[VOICE] Nessun voice client attivo da disconnettere.")
+            return
+
+        if vc:
+            logging.info(f"[VOICE] Disconnessione da: {guild.name}")
+            try:
+                await vc.disconnect(force=True)
+                current_vc = None
+            except discord.errors.ConnectionClosed as e:
+                logging.error(
+                    f"[VOICE] WebSocket chiuso durante disconnect — codice: {e.code}, motivo: {e.reason}"
                 )
-        except Exception as e:
-            logging.warning(
-                f"[{actual_datetime_string}] [VM] Errore durante disconnect: {e}"
-            )
-        finally:
-            current_vc = None
+                current_vc = None
+            except Exception as e:
+                logging.error(f"[VOICE] Errore durante la disconnessione: {e}")
+    finally:
+        voice_lock.release()
+        logging.debug("[VOICE_LOCK] Rilasciato (disconnect).")
 
 
-def get_current_vc() -> Optional[discord.VoiceClient]:
-    return current_vc
+def notify_bot_disconnected():
+    """Stub per compatibilità — non più necessario."""
+    pass

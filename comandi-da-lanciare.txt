@@ -3,3 +3,5 @@ source venv/bin/activate
 python bot-discord.py
 
 docker build -t bot-discord .
+# Build per Raspberry
+docker buildx build --platform linux/arm64 -t alexssio/bot-discord:bullseye-arm64 --push . 

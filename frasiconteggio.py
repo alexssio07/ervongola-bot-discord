@@ -1,6 +1,7 @@
 import random
 import json
 
+
 class FrasiConteggio:
     def __init__(self, data):
         self.frasi = data["frasi"]  # Carica le frasi dal JSON
@@ -33,7 +34,7 @@ class FrasiConteggio:
             if user["name"] == utente:
                 # Incrementa il valore di count per la frase selezionata
                 user["count"] += 1
-                self.salva_su_file("frasieffetto.json")
+                self.salva_su_file("json/frasieffetto.json")
                 wasFound = True
                 break
             else:
@@ -44,7 +45,7 @@ class FrasiConteggio:
                 {"count": 1, "name": utente}
             )
             # Aggiorna il JSON
-            self.salva_su_file("frasieffetto.json")
+            self.salva_su_file("json/frasieffetto.json")
 
         # Restituisci la frase selezionata (text) corrispondente all'indice
         return self.frasi[indice_frase_selezionata]["text"]
