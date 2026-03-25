@@ -1,10 +1,20 @@
-# ErVongola v4.6.0.5 (bot-discord)
+# ErVongola v5.0.0 (bot-discord)
 ![Logo](immagine_profilo.jpg)
 Assistente virtuale chiamato Er Vongola, super potente e cazzuto in grado di annunciare l'entrata di uno specifico utente quando entra in determinati canali vocali. Può assistervi come farebbe una vera intelligenza artificiale attraverso la chat testuale "parla-con-l-ia" o attraverso la sua chat privata, cliccateci e leggete le istruzioni per poterlo usare.
 
-- **Versione Python utilizzata 3.11 64bit**
-- **Librerie utilizzate Discord API, dotenv, os, ollama, json, streamlit, nest_asyncio, logging, yt-dlp, re, asyncio, gTTS, uuid, random, SmartScraperGraph**
-- **Package interni separati generatoreblasfemie, utils, frasiconteggio, voice_manager**
+- **Versione Python utilizzata:** arm64v8/python:3.11-slim
+
+- **Librerie utilizzate:**
+  aiohttp, discord.py, python-dotenv, nest-asyncio, logging, asyncio, gTTS, yt-dlp,
+  requests, beautifulsoup4, feedparser, httpx, tiktoken, tqdm, pydantic
+
+- **Altre dipendenze (gestite automaticamente):**
+  aiosignal, attrs, frozenlist, multidict, yarl, idna, urllib3, certifi, charset-normalizer,
+  sniffio, anyio, h11, httpcore, filelock, fsspec, Jinja2, MarkupSafe, typing_extensions,
+  annotated-types, pydantic_core, soupsieve, propcache, colorama
+
+- **Package interni separati:**
+  generatoreblasfemie, utils, frasiconteggio, voice_manager
 
 
 ### COMANDI DA ESEGUIRE
@@ -23,8 +33,6 @@ Se necessario
 ### Comandi creati per il bot Er-Vongola per Discord
 - ``` /info``` (mostra le informazioni riguardo al bot)
 - ``` /help``` (mostra aiuto e supporto su come utilizzarlo)
-- ``` /barzelletta``` (genera una barzelletta casuale tramite l'intelligenza artificiale, entra nel server dove ti trovi e te la legge ad alta voce)
-- ``` /freddura``` (genera una freddura casuale tramite l'intelligenza artificiale, entra nel server dove ti trovi e te la legge ad alta voce)
 - ``` /nwt``` (ti legge n notizie ad alta voce prendendole dalla chat testuale ⁠💻news-tech💻 presente nella sezione NOTIZIE DI OGNI TIPO)
 - ``` /nwg``` (ti legge n notizie ad alta voce prendendole dalla chat testuale ⁠📰news-generali📰 presente nella sezione NOTIZIE DI OGNI TIPO)
 - ``` /nwv``` (ti legge n notizie ad alta voce prendendole dalla chat testuale ⁠🕹news-videogames🕹 presente nella sezione NOTIZIE DI OGNI TIPO)
@@ -34,7 +42,6 @@ Se necessario
 - ``` /stop``` (Permette di fermare la musica o l'audio in riproduzione dal Bot)
 - ``` /list_audio_commands``` (Mostra la lista dei file audio o comandi vocali disponibili dal Bot)
 - ``` /play_audio_command``` (Riproduce un file audio secondo il suo ID, visualizzabile con il comando sopra citato)
-- ``` /lae``` (In beta test, entra nel canale vocale, ti ascolta e se pronunci determinate parole esegue dei comandi.
 
 <details>
   <summary>Avviso per le persone sensibili a parole o blasfemie</summary>
