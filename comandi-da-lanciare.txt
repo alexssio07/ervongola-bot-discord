@@ -4,4 +4,13 @@ python bot-discord.py
 
 docker build -t bot-discord .
 # Build per Raspberry
-docker buildx build --platform linux/arm64 -t alexssio/bot-discord:bullseye-arm64 --push . 
+docker buildx build --platform linux/arm64 -t alexssio/bot-discord:bullseye-arm64 --load .
+docker buildx build --platform linux/arm64 -t alexssio/bot-discord:bullseye-arm64 --push .
+docker run -d --restart unless-stopped --env-file .env --name bot-discord alexssio/bot-discord:bullseye-arm64
+
+# Elimina cache files del container
+find /app -name "*.pyc" -delete
+find /app -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null
+
+# Creare file compresso .tar.gz
+tar -czf discord-build-v2.tar.gz --exclude="node_modules" --exclude=".git" --exclude="venv" --exclude="web_server/node_modules" --exclude="web_server/dist" .

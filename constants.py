@@ -1,5 +1,5 @@
-from dotenv import load_dotenv
 import os
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -11,6 +11,16 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_GROUP_CHAT_ID = os.getenv("TELEGRAM_GROUP_CHAT_ID")
 TELEGRAM_GROUP_THREAD_ID = os.getenv("TELEGRAM_GROUP_THREAD_ID")
 ENABLE_MESSAGE_TELEGRAM = os.getenv("ENABLE_MESSAGE_TELEGRAM")
+# Flag indipendente da ENABLE_MESSAGE_TELEGRAM (che riguarda solo le notifiche
+# "utente online" in uscita): abilita/disabilita il bot Telegram che risponde
+# con l'IA quando viene taggato nel thread configurato. Default "true" per
+# compatibilità: se TELEGRAM_TOKEN è assente, telegram_manager.py si disattiva
+# comunque da solo.
+ENABLE_TELEGRAM_IA = os.getenv("ENABLE_TELEGRAM_IA", "true").strip().lower() == "true"
+# Versione del bot, loggata all'avvio (on_ready). Default = ultimo valore
+# hardcoded in bot-discord.py, così se BOT_VERSION non è impostata nel .env
+# il comportamento resta identico a prima.
+BOT_VERSION = os.getenv("BOT_VERSION", "5.0.0.0")
 
 chats_database = {
     "chat_vocale_privato": "707198443751211140",

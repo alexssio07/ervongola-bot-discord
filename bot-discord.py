@@ -19,7 +19,7 @@ from discord import (
 )
 from discord.ext.tasks import loop
 import nest_asyncio
-import requests
+import aiohttp
 import logging
 
 # Local imports
@@ -27,6 +27,10 @@ import constants
 import utils as ut
 import voice_manager as vm
 import queue_manager as qm
+import ia_manager as ia
+from ia_cogs import IACog
+import telegram_manager as tg
+from panel_log_handler import PanelLogHandler
 
 # Configurazione del logging
 logging.basicConfig(
@@ -40,6 +44,23 @@ logging.getLogger("discord.ext.voice_recv").setLevel(logging.WARNING)
 # con il protocollo DAVE E2EE. Non è bloccante ma spamma i log.
 logging.getLogger("discord.ext.voice_recv.router").setLevel(logging.ERROR)
 logging.getLogger("discord.opus").setLevel(logging.CRITICAL)
+# httpx (usato internamente da python-telegram-bot per il long-polling
+# getUpdates) logga a livello INFO ogni singola richiesta HTTP — con il
+# polling che parte ogni pochi secondi, spamma i log E soprattutto ci
+# scrive dentro l'URL completo con il TELEGRAM_TOKEN in chiaro ad ogni
+# riga. Silenziato a WARNING: restano visibili errori/timeout reali.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+# Inoltra i log al pannello web (web_server/), pagina Log live. Non bloccante
+# e fail-safe: se PANEL_LOG_INGEST_URL/TOKEN non sono impostati o il pannello
+# non è raggiungibile, il bot continua a funzionare esattamente come prima
+# (vedi panel_log_handler.py per i dettagli).
+logging.getLogger().addHandler(
+    PanelLogHandler(
+        ingest_url=os.getenv("PANEL_LOG_INGEST_URL", ""),
+        token=os.getenv("PANEL_LOG_INGEST_TOKEN", ""),
+    )
+)
 nest_asyncio.apply()
 
 # MESSAGE_PERSON_IS_HERE = "è online, se vuoi vai a fargli compagnia... Stronzo."
@@ -208,11 +229,25 @@ async def on_ready():
         player_task = asyncio.create_task(ut.audio_player(botDiscord, guild))
         logging.info("[BOT] Audio player task avviato/ripristinato.")
     actual_datetime_string = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    check_online.start()
+    # Guard: on_ready può essere chiamato più volte (es. riconnessione).
+    # check_online.start() lancia RuntimeError se il task è già in esecuzione.
+    if not check_online.is_running():
+        check_online.start()
+        logging.info("[BOT] Task check_online avviato.")
+    else:
+        logging.warning("[BOT] Task check_online già in esecuzione, skip start().")
     logging.info(
         f"[{actual_datetime_string}] Bot Er Vongola avviato con successo! ID: {botDiscord.user.id}"
     )
-    logging.info(f"[{actual_datetime_string}] Versione del BOT: 5.0.0")
+    logging.info(f"[{actual_datetime_string}] Versione del BOT: {constants.BOT_VERSION}")
+
+    # Registra il cog IA (memoria conversazionale per utente, documenti /ricorda, ecc.)
+    # Guardia perché on_ready può essere invocato più volte alla riconnessione:
+    # add_cog su un cog già registrato solleva un errore.
+    if botDiscord.get_cog("IACog") is None:
+        await botDiscord.add_cog(IACog(botDiscord))
+        logging.info("[BOT] IACog registrato (comandi IA con memoria e documenti).")
+
     try:
         comandiSync = await botDiscord.tree.sync()
         # for guild in botDiscord.guilds:
@@ -257,9 +292,6 @@ async def check_and_send_message(member, before, after):
             actual_datetime_string = now.strftime("%d/%m/%Y %H:%M:%S")
             if send_notification:
                 last_notification[member.id] = now
-                # @BradipinoMetallaro64551
-                # @Lykanos94
-                # @Alexssio
                 if member.name in (
                     constants.names_users["alexssio"],
                     constants.names_users["BLAcK_Knight"],
@@ -268,6 +300,9 @@ async def check_and_send_message(member, before, after):
                 else:
                     text = f"{member.name} è entrato nel canale vocale {after.channel.name}"
 
+                # Prova a mandare un messaggio privato a dark_lord sia su Discord sia sul gruppo Telegram
+                dark_lord = await botDiscord.fetch_user(constants.id_users["dark_lord"])
+                await send_private_message_target_is_here(dark_lord, member.name)
                 if constants.ENABLE_MESSAGE_TELEGRAM:
                     urlAPITelegram = f"https://api.telegram.org/bot{constants.TELEGRAM_TOKEN}/sendMessage"
                     data_chat_group = {
@@ -276,21 +311,28 @@ async def check_and_send_message(member, before, after):
                         "text": text,
                     }
                     try:
-                        responseGroup = requests.post(
-                            urlAPITelegram, data=data_chat_group
-                        )
-                        if responseGroup.status_code != 200:
-                            logging.error(
-                                f"[{actual_datetime_string}] Error sending message to Telegram: {responseGroup}"
-                            )
-                    except requests.RequestException as e:
+                        async with aiohttp.ClientSession() as session:
+                            async with session.post(
+                                urlAPITelegram,
+                                data=data_chat_group,
+                                timeout=aiohttp.ClientTimeout(total=5),
+                            ) as responseGroup:
+                                if responseGroup.status != 200:
+                                    logging.error(
+                                        f"[{actual_datetime_string}] Error sending message to Telegram: {responseGroup.status}"
+                                    )
+                                else:
+                                    logging.info(
+                                        f"[{actual_datetime_string}] Messaggio inviato su Telegram."
+                                    )
+                    except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                         logging.error(
                             f"[{actual_datetime_string}] Error sending message to Telegram: {e}"
                         )
-            elif member.name != "BOT-ErVongola":
-                logging.warning(
-                    f"[{actual_datetime_string}] Notifica non inviata a {member.name} in questo intervallo di tempo."
-                )
+                else:
+                    logging.warning(
+                        f"[{actual_datetime_string}] Messaggio NON INVIATO su Telegram."
+                    )
 
 
 @botDiscord.event
@@ -532,10 +574,18 @@ async def ping(interaction: discord.Interaction):
 
 
 @botDiscord.tree.command(
-    name="help", description="Mostra aiuto e supporto riguardo al bot"
+    # Rinominato da "help" a "info": IACog (ia_cogs.py) registra GIA' un
+    # comando app_commands "/help" (help_slash, alias di /aiuto). Avere due
+    # comandi con lo stesso nome sullo stesso tree fa fallire add_cog() con
+    # discord.app_commands.errors.CommandAlreadyRegistered: Command 'help'
+    # already registered, mandando in crash on_ready() e impedendo il
+    # caricamento di IACog. Questo comando resta funzionalmente identico,
+    # cambia solo il nome slash con cui viene invocato.
+    name="info",
+    description="Mostra informazioni e supporto riguardo al bot",
 )
 async def info_help(interaction: discord.Interaction):
-    """Mostra aiuto e supporto riguardo al bot"""
+    """Mostra informazioni e supporto riguardo al bot"""
 
     await interaction.response.send_message("Ecco le info riguardo il bot :")
     await interaction.channel.send(
@@ -556,7 +606,7 @@ async def info_help(interaction: discord.Interaction):
 async def sendmessage_darklord(interaction: discord.Interaction):
     """Manda un messaggio a DarkLord per comunicargli che siamo online..."""
     member_interaction = interaction.user
-    dark_Lord = await botDiscord.fetch_user(constants.id_users["dark_lord"])
+
     if member_interaction.roles != None:
         has_role = any(
             role.id == int(constants.id_roles["corpo_di_ricerca"])
@@ -568,16 +618,17 @@ async def sendmessage_darklord(interaction: discord.Interaction):
             logging.debug(
                 f"[{datetime.datetime.now().strftime('%d/%m/%Y %H:%M:%S')}] Utente {member_interaction.name} ha il ruolo richiesto"
             )
+            dark_Lord = await botDiscord.fetch_user(constants.id_users["dark_lord"])
             if interaction.user.name.lower() == "alexssio":
-                await dark_Lord.send(
-                    f"{member_interaction.name} {MESSAGE_PERSON_IS_HERE}"
+                await send_private_message_target_is_here(
+                    dark_Lord, member_interaction.name
                 )
                 await interaction.response.send_message(
                     "Messaggio inviato!", ephemeral=True
                 )
             if interaction.user.name.lower() == "black_knight.94":
-                await dark_Lord.send(
-                    f"{member_interaction.name} {MESSAGE_PERSON_IS_HERE}"
+                await send_private_message_target_is_here(
+                    dark_Lord, member_interaction.name
                 )
                 await interaction.response.send_message(
                     "Messaggio inviato!", ephemeral=True
@@ -592,6 +643,10 @@ async def sendmessage_darklord(interaction: discord.Interaction):
             "Devi essere connesso al server per poter inviare il messaggio",
             ephemeral=True,
         )
+
+
+async def send_private_message_target_is_here(user, target):
+    await user.send(f"{target} {constants.MESSAGE_PERSON_IS_HERE}")
 
 
 @botDiscord.tree.command(
@@ -611,7 +666,9 @@ async def sendmessage_alexssio(interaction: discord.Interaction):
         # Controlla se l'utente ha il ruolo richiesto per inviare il messaggio
 
         if has_role:
-            await alexssio.send(f"{interacted_member.name} {MESSAGE_PERSON_IS_HERE}")
+            await alexssio.send(
+                f"{interacted_member.name} {constants.MESSAGE_PERSON_IS_HERE}"
+            )
             await interaction.response.send_message(
                 "Messaggio inviato!", ephemeral=True
             )
@@ -643,7 +700,7 @@ async def sendmessage_lykanos(interaction: discord.Interaction):
         # Controlla se l'utente ha il ruolo richiesto per inviare il messaggio
         if has_role:
             await BLAcK_Knight.send(
-                f"{interacted_member.name} {MESSAGE_PERSON_IS_HERE}"
+                f"{interacted_member.name} {constants.MESSAGE_PERSON_IS_HERE}"
             )
             await interaction.response.send_message(
                 "Messaggio inviato!", ephemeral=True
@@ -736,9 +793,19 @@ async def add_bestemmia(interaction: discord.Interaction, testo: str):
         with open(file_path, "w", encoding="utf-8") as file:
             json.dump(data, file, ensure_ascii=False, indent=4)
 
-        await interaction.response.send_message(
-            f"Bestemmia '{testo}' aggiunta con successo!", ephemeral=False
-        )
+        with open(file_path, "r", encoding="utf-8") as verifica_json:
+            verify_data = json.load(verifica_json)
+            exists = any(
+                item["text"].lower() == testo for item in verify_data["bestemmie"]
+            )
+        if exists:
+            await interaction.response.send_message(
+                f"Bestemmia '{testo}' aggiunta con successo!", ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                f"Bestemmia '{testo}' non aggiunta nel database!", ephemeral=True
+            )
 
     except Exception as e:
         logging.error(f"Errore aggiunta bestemmia: {e}")
@@ -773,10 +840,19 @@ async def add_welcome_phrase(interaction: discord.Interaction, testo: str):
         with open(file_path, "w", encoding="utf-8") as file:
             json.dump(data, file, ensure_ascii=False, indent=4)
 
-        await interaction.response.send_message(
-            f"Frase di benvenuto '{testo}' aggiunta con successo!", ephemeral=False
-        )
-
+        with open(file_path, "r", encoding="utf-8") as verifica_json:
+            verify_data = json.load(verifica_json)
+            exists = any(item["text"].lower() == testo for item in verify_data["frasi"])
+        if exists:
+            await interaction.response.send_message(
+                f"Frase di benvenuto '{testo}' aggiunta con successo!",
+                ephemeral=True,
+            )
+        else:
+            await interaction.response.send_message(
+                f"Frase di benvenuto '{testo}' non aggiunta nel database!",
+                ephemeral=True,
+            )
     except Exception as e:
         logging.error(f"Errore aggiunta frase effetto: {e}")
         await interaction.response.send_message(
@@ -1149,6 +1225,66 @@ async def joinandlisten(interaction: discord.Interaction):
     # Il task di ascolto viene avviato automaticamente in on_voice_state_update
 
 
+@botDiscord.tree.command(
+    name="chiedi_ia",
+    description="Fai una domanda all'IA (Qwen3 via Ollama) — risposta testuale in chat",
+)
+async def chiedi_ia(
+    interaction: discord.Interaction,
+    domanda: str,
+    leggi_ad_alta_voce: bool = False,
+):
+    """
+    Invia una domanda all'IA (Qwen3 via Ollama) e risponde in chat.
+    Usa la memoria conversazionale per utente (ia.ask_ia_contextual): un testo
+    fornito con /ricorda, o una domanda fatta in un comando precedente, resta
+    disponibile come contesto per le domande successive dello stesso utente
+    (coerente con /ask, /tech, /creative e i DM/menzioni gestiti da IACog).
+
+    Se 'leggi_ad_alta_voce' è True e l'utente è in un canale vocale,
+    la risposta viene anche letta con gTTS.
+
+    Nota: il TTS Qwen3 nativo è disabilitato su Raspberry Pi.
+    Viene usato gTTS per la lettura vocale.
+    """
+    await interaction.response.defer(ephemeral=False)
+
+    logging.info(f"[IA] Domanda da {interaction.user.name}: {domanda}")
+
+    risposta = await ia.ask_ia_contextual(
+        domanda,
+        user_id=interaction.user.id,
+        style="risposta_amichevole",
+    )
+
+    if not risposta:
+        await interaction.followup.send(
+            "⚠️ L'IA non è disponibile al momento (Ollama non raggiungibile o modello non caricato).",
+            ephemeral=True,
+        )
+        return
+
+    embed = discord.Embed(
+        title="🤖 Risposta dell'IA",
+        description=risposta[:4096],
+        color=0x7289DA,
+    )
+    embed.set_footer(text=f"Domanda di {interaction.user.display_name}: {domanda[:80]}")
+    await interaction.followup.send(embed=embed)
+
+    # Lettura vocale opzionale via gTTS (Qwen3 TTS disabilitato su RPi)
+    if leggi_ad_alta_voce:
+        voice_state = interaction.user.voice
+        if not voice_state or not voice_state.channel:
+            await interaction.followup.send(
+                "ℹ️ Per la lettura vocale devi essere in un canale vocale.",
+                ephemeral=True,
+            )
+        else:
+            # Usa text_to_speech di utils.py: genera mp3 con gTTS e accoda
+            await ut.text_to_speech(risposta, "ia_risposta", voice_state.channel)
+
+
 @botDiscord.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error):
     logging.error(f"Errore nel comando: {error}")
@@ -1172,6 +1308,40 @@ async def before_monitor_members():
     await botDiscord.wait_until_ready()
 
 
-# Esegui il bot Discord e inizializza il monitoraggio degli utenti
+async def main():
+    """
+    Avvia Discord e, se configurato, il bot Telegram IA nello stesso event
+    loop (asyncio.create_task, nessun thread separato — vedi telegram_manager.py
+    per il perché). botDiscord.start() blocca fino a disconnessione/interruzione;
+    stop_event (già definito sopra, in precedenza inutilizzato) coordina lo
+    spegnimento pulito del task Telegram quando Discord termina.
+    """
+    telegram_task = None
+    if constants.TELEGRAM_TOKEN and constants.ENABLE_TELEGRAM_IA:
+        telegram_task = asyncio.create_task(tg.run_telegram_bot(stop_event))
+        logging.info("[BOT] Task Telegram IA avviato.")
+    else:
+        logging.info(
+            "[BOT] Integrazione IA Telegram disabilitata (token mancante o ENABLE_TELEGRAM_IA=false)."
+        )
+
+    try:
+        async with botDiscord:
+            await botDiscord.start(constants.DISCORD_TOKEN)
+    finally:
+        stop_event.set()
+        if telegram_task:
+            # Telegram è accessorio: qualunque suo problema (anche un'eccezione
+            # o un blocco in chiusura) non deve interferire con lo shutdown di
+            # Discord né mascherarne l'eventuale errore.
+            try:
+                await asyncio.wait_for(telegram_task, timeout=15)
+            except asyncio.TimeoutError:
+                logging.warning("[BOT] Task Telegram non terminato in 15s: cancellato.")
+            except Exception as e:  # noqa: BLE001
+                logging.error(f"[BOT] Errore nella chiusura del task Telegram: {e}")
+
+
+# Esegui il bot Discord (e Telegram, se abilitato) nello stesso event loop
 users_online = []
-botDiscord.run(constants.DISCORD_TOKEN)
+asyncio.run(main())

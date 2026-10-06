@@ -3,9 +3,8 @@ import logging
 import os
 import json
 import re
-import time
-import uuid
 import asyncio
+import random
 
 # Third party imports
 import discord
@@ -13,11 +12,12 @@ import aiohttp
 from bs4 import BeautifulSoup
 import feedparser
 import yt_dlp
-from gtts import gTTS
+import tts_manager as tts
 
 # Local imports
 import frasiconteggio as frasiconteggio
 import generatoreblasfemie
+import constants
 
 import voice_manager as vm
 import queue_manager as qm
@@ -29,6 +29,43 @@ vc_lock = asyncio.Lock()
 stop_event = asyncio.Event()  # Evento per fermare le operazioni asincrone
 CONNECT_MAX_RETRIES = 5
 CONNECT_BASE_DELAY = 2  # secondi
+
+_FRASI_ADDIO_FILE = "json/frasiaddio.json"
+_FRASE_ADDIO_FALLBACK = "Aòòh! Io ho finito, ME NE VADO, BELLA REGÀ!!"
+
+
+def _get_frase_addio() -> str:
+    """Restituisce una frase di saluto finale casuale letta da frasiaddio.json.
+
+    Il formato reale di ogni entry in "frasi" e' un oggetto
+    {"text": "...", "count": 0} (non una stringa semplice), quindi il testo
+    va estratto dal campo "text". Manteniamo comunque il supporto alle
+    stringhe dirette per retrocompatibilita' con formati piu' vecchi del file.
+    """
+    try:
+        with open(_FRASI_ADDIO_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        frasi = []
+        for entry in data.get("frasi", []):
+            if isinstance(entry, str):
+                testo = entry
+            elif isinstance(entry, dict):
+                testo = entry.get("text")
+            else:
+                testo = None
+            if isinstance(testo, str) and testo.strip():
+                frasi.append(testo)
+
+        if frasi:
+            return random.choice(frasi)
+        logging.warning(
+            f"[ADDIO] {_FRASI_ADDIO_FILE} non contiene frasi valide (campo text mancante o vuoto)."
+        )
+    except (FileNotFoundError, json.JSONDecodeError, KeyError) as e:
+        logging.warning(f"[ADDIO] Impossibile caricare {_FRASI_ADDIO_FILE}: {e}")
+    return _FRASE_ADDIO_FALLBACK
+
 
 # Debounce per make_audio: evita audio duplicati se un utente entra/esce velocemente
 _make_audio_pending: dict = {}  # member_id -> asyncio.Task
@@ -73,10 +110,11 @@ keyword_commands = {
     "riproduci": "play_audio",
 }
 
-CHAT_VOCALE_PRIVATO = "707198443751211140"
-CHAT_VOCALE_PRIVATO2 = "707514058990944256"
-CHAT_VOCALE_PRIVATO3 = "783252026766131222"
-chats = ["CHAT_VOCALE_PRIVATO", "CHAT_VOCALE_PRIVATO2", "CHAT_VOCALE_PRIVATO3"]
+chats = [
+    constants.chats_database["chat_vocale_privato"],
+    constants.chats_database["chat_vocale_privato2"],
+    constants.chats_database["chat_vocale_privato3"],
+]
 id_users = {
     "alexssio": "190745296500686857",
     "BLAcK_Knight": "366952021045280779",
@@ -99,7 +137,47 @@ async def audio_player(botDiscord, guild):
         if stop_event.is_set():
             break
 
-        task = await qm.audio_queue.get()
+        try:
+            # Restiamo in attesa di un task per 15 secondi (Grace Period)
+            task = await asyncio.wait_for(qm.audio_queue.get(), timeout=15.0)
+        except asyncio.TimeoutError:
+            # Se la coda è vuota per 15s, salutiamo e disconnettiamo
+            vc = vm.current_vc
+            if vc and vc.is_connected() and not vc.is_playing():
+                logging.info(
+                    "[AUDIO_PLAYER] Coda vuota da 15s. Riproduco saluto finale e disconnetto."
+                )
+                try:
+                    file_saluto = "audio_saluto_finale.mp3"
+                    frase_addio = _get_frase_addio()
+                    success = await tts.text_to_speech_async(frase_addio, file_saluto)
+
+                    if not success:
+                        logging.error(
+                            "[AUDIO_PLAYER] Errore nella generazione del saluto finale"
+                        )
+                        continue
+
+                    vc.play(discord.FFmpegPCMAudio(file_saluto))
+                    while vc.is_playing():
+                        await asyncio.sleep(1)
+
+                except Exception as e:
+                    # exc_info=True: senza il traceback completo non si capisce MAI
+                    # da quale chiamata (TTS, FFmpeg, encoder Opus, voice_recv/DAVE)
+                    # arriva davvero l'errore. Prima veniva loggato solo str(e).
+                    logging.error(
+                        f"[AUDIO_PLAYER] Errore nel saluto finale: {e}", exc_info=True
+                    )
+                finally:
+                    # Disconnetti e pulisci SEMPRE, anche se il saluto fallisce.
+                    # Prima, in caso di eccezione, il bot restava agganciato al
+                    # canale vocale e ritentava il saluto ogni 15s all'infinito
+                    # (l'unico ramo che disconnetteva era quello "success").
+                    await vm.disconnect(guild)
+                    delete_temp_file()
+            continue
+
         try:
             channel = task["channel"]
             file_name = task["file"]
@@ -119,7 +197,7 @@ async def audio_player(botDiscord, guild):
                     "[AUDIO_PLAYER] Impossibile stabilire una connessione valida, rimetto in coda (backoff 15s)..."
                 )
                 await vm.disconnect()
-                await asyncio.sleep(15)
+                await asyncio.sleep(10)
                 await qm.audio_queue.put(task)
 
         except discord.errors.ConnectionClosed as e:
@@ -128,9 +206,6 @@ async def audio_player(botDiscord, guild):
             )
             await vm.disconnect(guild)
             await asyncio.sleep(20)
-            # FIX: non rimettere in coda — il canale potrebbe essere cambiato o vuoto.
-            # L'audio di benvenuto perde senso se l'utente è già uscito dal canale.
-            # Svuotiamo invece i task stale accumulati durante il backoff.
             _drain_stale_tasks(channel)
 
         except asyncio.TimeoutError:
@@ -148,21 +223,6 @@ async def audio_player(botDiscord, guild):
             _drain_stale_tasks(channel)
         finally:
             qm.audio_queue.task_done()
-
-            # GRACE PERIOD: Se la coda è vuota, aspettiamo 30 secondi prima di uscire.
-            # Se arriva un nuovo task nel frattempo, il loop tornerà su e vedrà la connessione già aperta.
-            if qm.audio_queue.empty():
-                logging.info(
-                    "[AUDIO_PLAYER] Coda vuota. Grace period di 30s per evitare flapping..."
-                )
-                await asyncio.sleep(30)
-                if qm.audio_queue.empty():
-                    vc = vm.current_vc
-                    if vc and not vc.is_playing():
-                        disconnect_guild = (
-                            guild if guild else (vc.guild if vc else None)
-                        )
-                        await vm.disconnect(disconnect_guild)
     # logging.info("[AUDIO_PLAYER] Audio player started")
     # while True:
     #     try:
@@ -219,13 +279,22 @@ async def audio_player(botDiscord, guild):
 
 
 async def text_to_speech(custom_message, another_text_message, channel):
-    allowed_channels = [CHAT_VOCALE_PRIVATO, CHAT_VOCALE_PRIVATO2, CHAT_VOCALE_PRIVATO3]
+    allowed_channels = [
+        constants.chats_database["chat_vocale_privato"],
+        constants.chats_database["chat_vocale_privato2"],
+        constants.chats_database["chat_vocale_privato3"],
+        constants.chats_database["chat_testing"],
+    ]
     if str(channel.id) not in allowed_channels:
         return
 
     try:
-        tts = gTTS(custom_message, lang="it")
-        tts.save(f"audio_{another_text_message}.mp3")
+        filename = f"audio_{another_text_message}.mp3"
+        success = await tts.text_to_speech_async(custom_message, filename)
+
+        if not success:
+            logging.error(f"[TTS] Errore nella generazione dell'audio: {filename}")
+            return
         logging.info(f"Message/command received by channel: {channel}")
         await qm.audio_queue.put(
             {"channel": channel, "file": f"audio_{another_text_message}.mp3"}
@@ -279,9 +348,10 @@ async def _make_audio_inner(botDiscord, member, channelKey):
                 channel = botDiscord.get_channel(int(channelKey))
                 # Controllo se l'utente è entrato in quel determinato canale
                 if str(channel.id) in [
-                    CHAT_VOCALE_PRIVATO,
-                    CHAT_VOCALE_PRIVATO2,
-                    CHAT_VOCALE_PRIVATO3,
+                    constants.chats_database["chat_vocale_privato"],
+                    constants.chats_database["chat_vocale_privato2"],
+                    constants.chats_database["chat_vocale_privato3"],
+                    constants.chats_database["chat_testing"],
                 ]:
                     # Genero una frase casuale tramite il metodo frase_random della classe FrasiConteggio
                     frasedeffetto = frasi.frase_random(member.name)
@@ -474,7 +544,6 @@ async def save_news_and_speech(
         message,
         f"news_by_channel_{type_news}_{index}",
         interaction.channel,
-        qm.audio_queue,
     )
 
 
@@ -551,9 +620,7 @@ async def prendi_notizia(
             for entry in data
         )
         if not already_read:
-            await save_news_and_speech(
-                interaction, message, index, type_news, qm.audio_queue
-            )
+            await save_news_and_speech(interaction, message, index, type_news)
 
 
 async def prendi_notizia_testo(type_news, countnews=1):
@@ -585,7 +652,6 @@ async def leggi_giochi_gratis(interaction, channel_news):
                     messageFormatted,
                     f"news_by_channel_{channel_news.id}",
                     interaction.channel,
-                    qm.audio_queue,
                 )
                 return messageFormatted
         except (
@@ -605,57 +671,161 @@ async def leggi_giochi_gratis(interaction, channel_news):
             return f"Error processing free games: {str(e)}\n{traceback.format_exc()}"
 
 
-async def leggi_meteo(interaction, nome_citta):
+# Codici WMO → descrizione leggibile + emoji
+# Fonte: https://open-meteo.com/en/docs (Weather interpretation codes)
+_WMO_CODES: dict[int, tuple[str, str]] = {
+    0: ("Cielo sereno", "☀️"),
+    1: ("Prevalentemente sereno", "🌤️"),
+    2: ("Parzialmente nuvoloso", "⛅"),
+    3: ("Nuvoloso", "☁️"),
+    45: ("Nebbia", "🌫️"),
+    48: ("Nebbia con brina", "🌫️"),
+    51: ("Pioggerella leggera", "🌦️"),
+    53: ("Pioggerella moderata", "🌦️"),
+    55: ("Pioggerella intensa", "🌧️"),
+    61: ("Pioggia leggera", "🌧️"),
+    63: ("Pioggia moderata", "🌧️"),
+    65: ("Pioggia intensa", "🌧️"),
+    71: ("Neve leggera", "❄️"),
+    73: ("Neve moderata", "❄️"),
+    75: ("Neve intensa", "❄️"),
+    80: ("Acquazzone leggero", "🌦️"),
+    81: ("Acquazzone moderato", "🌧️"),
+    82: ("Acquazzone violento", "⛈️"),
+    95: ("Temporale", "⛈️"),
+    96: ("Temporale con grandine", "⛈️"),
+    99: ("Temporale forte con grandine", "⛈️"),
+}
+
+
+async def leggi_meteo(interaction, nome_citta: str):
+    """
+    Recupera e mostra le previsioni meteo tramite Open-Meteo (gratuito, no API key).
+    Pipeline: geocoding Open-Meteo → coordinate → dati meteo → risposta formattata.
+    """
     await interaction.response.defer()
-    weather_results = await get_weather_data(nome_citta)
 
-    if weather_results:
-        response_message = f"🌤️ Meteo per {nome_citta.title()}:\n" + "\n".join(
-            weather_results
-        )
-    else:
-        response_message = (
-            f"❌ Non sono riuscito a trovare le previsioni meteo per {nome_citta}"
-        )
+    try:
+        dati = await get_weather_data(nome_citta)
+    except Exception as e:
+        logging.error(f"[METEO] Errore imprevisto per '{nome_citta}': {e}")
+        dati = None
+
+    if not dati:
+        if not interaction.is_expired():
+            await interaction.followup.send(
+                f"❌ Non ho trovato dati meteo per **{nome_citta}**. "
+                f"Controlla il nome della città e riprova."
+            )
+        return
+
+    wmo_code = dati.get("weathercode", -1)
+    desc, emoji = _WMO_CODES.get(wmo_code, ("Condizioni sconosciute", "🌡️"))
+    temp_now = dati.get("temperature_2m", "N/D")
+    temp_max = dati.get("temperature_2m_max", "N/D")
+    temp_min = dati.get("temperature_2m_min", "N/D")
+    wind = dati.get("windspeed_10m", "N/D")
+    humidity = dati.get("relativehumidity_2m", "N/D")
+    city_label = dati.get("city_label", nome_citta.title())
+
+    lines = [
+        f"## {emoji} Meteo per **{city_label}**",
+        f"**Condizioni:** {desc}",
+        f"**Temperatura attuale:** {temp_now}°C",
+        f"**Min / Max oggi:** {temp_min}°C / {temp_max}°C",
+        f"**Vento:** {wind} km/h",
+        f"**Umidità:** {humidity}%",
+        f"-# Dati: Open-Meteo.com · aggiornati in tempo reale",
+    ]
+
     if not interaction.is_expired():
-        await interaction.followup.send(response_message)
+        await interaction.followup.send("\n".join(lines))
 
 
-async def get_weather_data(nome_citta):
-    weather_data = []
-    city_encoded = nome_citta.lower().replace(" ", "-")
+async def get_weather_data(nome_citta: str) -> dict | None:
+    """
+    Recupera i dati meteo per la città tramite Open-Meteo (gratuito, no API key).
 
-    urls = {
-        "ilmeteo.it": f"https://www.ilmeteo.it/meteo/{city_encoded}",
-        "3bmeteo.com": f"https://www.3bmeteo.com/meteo/{city_encoded}",
-        "meteo.it": f"https://www.meteo.it/{city_encoded}",
-    }
+    Step 1 — Geocoding: Open-Meteo Geocoding API → lat/lon/nome reale
+    Step 2 — Meteo:     Open-Meteo Forecast API  → current + daily
 
-    async with aiohttp.ClientSession() as session:
-        for source, url in urls.items():
-            html = await fetch_url(session, url)
-            if html:
-                soup = BeautifulSoup(html, "html.parser")
-                try:
-                    if source == "ilmeteo.it":
-                        temp = soup.find("div", class_="temp")
-                        if temp:
-                            weather_data.append(f"**ilmeteo.it**: {temp.text.strip()}")
+    Returns:
+        dict con i campi meteo, oppure None se la città non è trovata o c'è errore.
+    """
+    geo_url = (
+        f"https://geocoding-api.open-meteo.com/v1/search"
+        f"?name={nome_citta}&count=1&language=it&format=json"
+    )
 
-                    elif source == "3bmeteo.com":
-                        temp = soup.find("div", class_="today-temperature")
-                        if temp:
-                            weather_data.append(f"**3bmeteo.com**: {temp.text.strip()}")
+    try:
+        async with aiohttp.ClientSession() as session:
+            # ── Step 1: geocoding ─────────────────────────────────────────
+            async with session.get(
+                geo_url, timeout=aiohttp.ClientTimeout(total=8)
+            ) as geo_resp:
+                if geo_resp.status != 200:
+                    logging.error(
+                        f"[METEO] Geocoding HTTP {geo_resp.status} per '{nome_citta}'"
+                    )
+                    return None
+                geo_data = await geo_resp.json()
 
-                    elif source == "meteo.it":
-                        temp = soup.find("div", class_="temperature")
-                        if temp:
-                            weather_data.append(f"**meteo.it**: {temp.text.strip()}")
-                except (AttributeError, TypeError, ValueError) as e:
-                    logging.error(f"Error parsing weather data: {e}")
-                    continue
+            results = geo_data.get("results")
+            if not results:
+                logging.warning(
+                    f"[METEO] Città '{nome_citta}' non trovata nel geocoding."
+                )
+                return None
 
-    return weather_data
+            hit = results[0]
+            lat = hit["latitude"]
+            lon = hit["longitude"]
+            city_label = hit.get("name", nome_citta.title())
+            country = hit.get("country", "")
+            if country:
+                city_label = f"{city_label}, {country}"
+
+            logging.info(f"[METEO] Geocoding OK: {city_label} → lat={lat}, lon={lon}")
+
+            # ── Step 2: dati meteo ────────────────────────────────────────
+            wx_url = (
+                f"https://api.open-meteo.com/v1/forecast"
+                f"?latitude={lat}&longitude={lon}"
+                f"&current=temperature_2m,relativehumidity_2m,weathercode,windspeed_10m"
+                f"&daily=temperature_2m_max,temperature_2m_min"
+                f"&timezone=auto&forecast_days=1"
+            )
+
+            async with session.get(
+                wx_url, timeout=aiohttp.ClientTimeout(total=8)
+            ) as wx_resp:
+                if wx_resp.status != 200:
+                    logging.error(f"[METEO] Forecast HTTP {wx_resp.status}")
+                    return None
+                wx_data = await wx_resp.json()
+
+            current = wx_data.get("current", {})
+            daily = wx_data.get("daily", {})
+
+            return {
+                "city_label": city_label,
+                "temperature_2m": current.get("temperature_2m"),
+                "relativehumidity_2m": current.get("relativehumidity_2m"),
+                "weathercode": current.get("weathercode"),
+                "windspeed_10m": current.get("windspeed_10m"),
+                "temperature_2m_max": (daily.get("temperature_2m_max") or [None])[0],
+                "temperature_2m_min": (daily.get("temperature_2m_min") or [None])[0],
+            }
+
+    except asyncio.TimeoutError:
+        logging.error(f"[METEO] Timeout durante il recupero dati per '{nome_citta}'.")
+        return None
+    except aiohttp.ClientError as e:
+        logging.error(f"[METEO] Errore rete: {e}")
+        return None
+    except Exception as e:
+        logging.error(f"[METEO] Errore imprevisto: {e}")
+        return None
 
 
 async def fetch_url(session, url):
@@ -774,11 +944,9 @@ async def lancio_bestemmia_commands(
                 ).frase_random()
                 if (voice_state) and (voice_state.channel):
                     await text_to_speech(
-                        botDiscord,
                         custom_message,
                         f"bestemmie_{startCounter}",
-                        voice_state.channel.id,
-                        qm.audio_queue,
+                        voice_state.channel,
                     )
                     return custom_message
     else:
@@ -793,12 +961,12 @@ async def lancia_bestemmia_casual():
         data = json.load(file)
         custom_message = generatoreblasfemie.GeneratoreBlasfemie(data).frase_random()
         try:
+            filename = "audio_blasfemia.mp3"
+            success = await tts.text_to_speech_async(custom_message, filename)
 
-            tts = gTTS(custom_message, lang="it")
-            tts.save(f"audio_blasfemia.mp3")
-            # logging.info(
-            #     f"Message/command received by channel: {vm.current_vc.channel.name}"
-            # )
+            if not success:
+                logging.error("[BESTEMMIA] Errore nella generazione dell'audio")
+                return
             await qm.audio_queue.put(
                 {"channel": vm.current_vc.channel.id, "file": f"audio_blasfemia.mp3"}
             )
