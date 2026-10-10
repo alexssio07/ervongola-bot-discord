@@ -1,0 +1,10 @@
+flask
+flask-cors
+python-dotenv
+requests
+
+# Server WSGI di produzione: il server di sviluppo integrato di Flask
+# ("python app.py") stampa esplicitamente "do not use in production" e non
+# va usato in un container esposto oltre alla rete locale. Vedi
+# docker-entrypoint.sh alla root della repo.
+gunicorn
